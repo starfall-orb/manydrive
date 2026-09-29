@@ -52,7 +52,9 @@ internal fun DriveNavigationDrawer(
     onTrash: () -> Unit,
     onSettings: () -> Unit,
     systemFilesSelected: Boolean = false,
-    onSystemFiles: () -> Unit = {}
+    onSystemFiles: () -> Unit = {},
+    photosSelected: Boolean = false,
+    onPhotos: () -> Unit = {}
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val drawerWidth = (screenWidth - 56.dp).coerceAtLeast(240.dp).coerceAtMost(360.dp)
@@ -93,6 +95,13 @@ internal fun DriveNavigationDrawer(
                 label = tr("Tệp Hệ Thống"),
                 selected = systemFilesSelected,
                 onClick = onSystemFiles
+            )
+            DriveDrawerItem(
+                icon = Icons.Outlined.Image,
+                label = "Google Photos",
+                selected = photosSelected,
+                enabled = isTabEnabled(account?.type, 4),
+                onClick = onPhotos
             )
             DriveDrawerItem(
                 icon = Icons.Outlined.Delete,

@@ -30,6 +30,8 @@ internal class ViewerCoordinator(
     private val listCache: FileListCache,
     private val activeAccount: () -> AccountEntry?,
     private val accessToken: () -> String?,
+    private val photosAccessToken: () -> String? = { null },
+    private val photosTokenProvider: (String) -> (() -> String)? = { null },
     private val s3Config: (AccountEntry) -> S3Config?,
     private val currentFiles: () -> List<DriveFile>,
     private val player: () -> Player?,
@@ -62,7 +64,7 @@ internal class ViewerCoordinator(
 
     fun syncToMediaItem(mediaItem: MediaItem) {
         val source = PlaybackSourceRegistry.get(mediaItem.mediaId) ?: return
-        localPreview = source.accountType == "LOCAL"
+        localPreview = source.accountType in setOf("LOCAL", "CONTENT")
         val previous = state
         val queue = previous?.swipeQueue?.takeIf { items -> items.any { it.id == source.file.id } }
             ?: currentFiles().filter(::isSwipePreview)
@@ -96,7 +98,7 @@ internal class ViewerCoordinator(
         } else emptyList()
         val browsingIndex = browsingQueue.indexOfFirst { it.id == file.id }
 
-        if (account.type != AccountType.S3 && accessToken() == null) {
+        if (file.photosMediaId == null && account.type != AccountType.S3 && accessToken() == null) {
             awaitingTokenFor = account.key
             state = ViewerState(
                 file = file, loading = true, minimized = minimized,
@@ -185,7 +187,7 @@ internal class ViewerCoordinator(
         if (isMediaPreview(file)) {
             requestNotificationPermission()
             val sources = browsingQueue.filter(::isMediaPreview).map {
-                PlaybackSource("LOCAL:${it.id}", it, "LOCAL", null, null, File(it.id))
+                PlaybackSource("LOCAL:${it.id}", it, if (it.id.startsWith("content://")) "CONTENT" else "LOCAL", null, null, File(it.id))
             }
             PlaybackSourceRegistry.replace(sources)
             scope.launch {
@@ -205,7 +207,7 @@ internal class ViewerCoordinator(
         } else {
             val sharesMediaQueue = file.mimeType.startsWith("image/") &&
                 PlaybackSourceRegistry.all().any { source ->
-                    source.accountType == "LOCAL" && browsingQueue.any { it.id == source.file.id }
+                    source.accountType in setOf("LOCAL", "CONTENT") && browsingQueue.any { it.id == source.file.id }
                 }
             if (sharesMediaQueue) player()?.pause()
             else {
@@ -216,6 +218,11 @@ internal class ViewerCoordinator(
             scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.IO) {
+                        if (file.id.startsWith("content://")) {
+                            context.contentResolver.openInputStream(android.net.Uri.parse(file.id))?.use { }
+                                ?: error(tr("Không thể đọc tệp này."))
+                            return@withContext null
+                        }
                         val local = File(file.id)
                         check(local.isFile && local.canRead()) { tr("Không thể đọc tệp này.") }
                         if (isTextPreview(file)) {
@@ -252,7 +259,7 @@ internal class ViewerCoordinator(
         val mediaIndex = mediaQueue.indexOfFirst { it.id == file.id }.coerceAtLeast(0)
         val browsingIndex = browsingQueue.indexOfFirst { it.id == file.id }.coerceAtLeast(0)
         val config = if (account.type == AccountType.S3) s3Config(account) else null
-        val token = if (account.type == AccountType.S3) null else accessToken()
+        val token = if (file.photosMediaId != null) photosAccessToken() else if (account.type == AccountType.S3) null else accessToken()
         if (account.type != AccountType.S3 && token == null) {
             state = ViewerState(file = file, error = tr("Cần cấp quyền truy cập trước khi phát media."))
             return
@@ -266,10 +273,11 @@ internal class ViewerCoordinator(
             PlaybackSource(
                 mediaId = "${account.key}:${item.id}",
                 file = item,
-                accountType = account.type.name,
+                accountType = if (item.photosMediaId != null) "PHOTOS" else account.type.name,
                 accessToken = token,
                 s3Config = config,
-                cacheFile = previewCacheFile(account.key, item)
+                cacheFile = previewCacheFile(account.key, item),
+                photosTokenProvider = if (item.photosMediaId != null) photosTokenProvider(account.key) else null
             )
         }
         PlaybackSourceRegistry.replace(sources)
@@ -419,7 +427,10 @@ internal class ViewerCoordinator(
         val temporary = File(target.path + ".tmp")
         temporary.parentFile?.mkdirs()
         temporary.delete()
-        when (account.type) {
+        if (file.photosMediaId != null) {
+            com.starfall.gsadrive.data.PhotosApi.downloadImage(
+                photosTokenProvider(account.key)?.invoke() ?: error(tr("Cần cấp quyền Google Photos.")), file.photosMediaId, temporary)
+        } else when (account.type) {
             AccountType.S3 -> S3Api.downloadTo(
                 s3Config(account) ?: error(tr("Không tìm thấy cấu hình S3.")), file.id, temporary)
             AccountType.GOOGLE, AccountType.SERVICE -> DriveApi.downloadTo(
@@ -452,7 +463,7 @@ internal class ViewerCoordinator(
         val next = sources.getOrNull(currentIndex + 1) ?: return
 
         // S3 page players buffer their own HTTP streams; never download whole objects for prefetch.
-        if (current.accountType in setOf("S3", "LOCAL") || next.accountType in setOf("S3", "LOCAL")) return
+        if (current.accountType in setOf("S3", "LOCAL", "PHOTOS", "CONTENT") || next.accountType in setOf("S3", "LOCAL", "PHOTOS", "CONTENT")) return
         if (next.cacheFile.isFile && next.cacheFile.length() > 0L) return
 
         val job = scope.launch(Dispatchers.IO) {

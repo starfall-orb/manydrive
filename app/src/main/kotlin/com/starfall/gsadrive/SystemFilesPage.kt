@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.os.storage.StorageManager
-import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -171,12 +170,7 @@ internal fun SystemFilesPage(
                         mimeType = if (file.isDirectory) {
                             "application/vnd.google-apps.folder"
                         } else {
-                            MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
-                                ?: if (file.extension.lowercase() in setOf("md", "log", "kt", "json", "yaml", "toml")) {
-                                    "text/plain"
-                                } else {
-                                    "application/octet-stream"
-                                }
+                            localFileMimeType(file.name)
                         },
                         modifiedTime = dateFormat.format(Date(file.lastModified())),
                         size = if (file.isFile) file.length() else null

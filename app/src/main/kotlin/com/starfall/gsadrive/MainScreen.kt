@@ -12,6 +12,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +53,8 @@ import com.starfall.gsadrive.ui.theme.ThemeMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
+
+private enum class MainDestination { BROWSER, TRASH, PHOTOS, SYSTEM_FILES, SETTINGS }
 
 
 private data class BrowserTabSearchState(
@@ -202,6 +211,13 @@ internal fun App(
     // Non-media previews still use the app viewer scaffold. Expanded media does not.
     val appViewerExpanded = viewerExpanded && mediaViewer == null
     val viewerBlack = viewerExpanded && viewer?.let { isSwipePreview(it.file) } == true
+    val destination = when {
+        showSettings -> MainDestination.SETTINGS
+        showSystemFiles -> MainDestination.SYSTEM_FILES
+        selected == 4 -> MainDestination.PHOTOS
+        selected == 3 -> MainDestination.TRASH
+        else -> MainDestination.BROWSER
+    }
     var miniBounds by remember { mutableStateOf<Rect?>(null) }
     var playerTopPadding by remember { mutableStateOf(0.dp) }
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -246,6 +262,14 @@ internal fun App(
         drawerContent = {
             DriveNavigationDrawer(
                 account = active,
+                photosSelected = !showSettings && !showSystemFiles && selected == 4,
+                onPhotos = {
+                    showSettings = false
+                    showSystemFiles = false
+                    showFabMenu = false
+                    select(4)
+                    drawerScope.launch { drawerState.close() }
+                },
                 trashSelected = !showSettings && !showSystemFiles && selected == 3,
                 settingsSelected = showSettings,
                 systemFilesSelected = showSystemFiles && !showSettings,
@@ -385,6 +409,7 @@ internal fun App(
                                 Text(when {
                                     appViewerExpanded -> viewer?.file?.name.orEmpty()
                                     selected == 3 -> tr("Thùng rác")
+                                    selected == 4 -> "Google Photos"
                                     else -> "ManyDrive"
                                 }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             },
@@ -437,7 +462,7 @@ internal fun App(
                     }
                 },
                 floatingActionButton = {
-                    if (!appViewerExpanded && !showSettings && !showSystemFiles) {
+                    if (!appViewerExpanded && !showSettings && !showSystemFiles && selected != 4) {
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -493,8 +518,8 @@ internal fun App(
             ) { padding ->
                 SideEffect { playerTopPadding = padding.calculateTopPadding() }
                 Box(Modifier.fillMaxSize()) {
-                    when {
-                        appViewerExpanded && viewer != null && playback != null -> FileViewerPage(
+                    if (appViewerExpanded && viewer != null && playback != null) {
+                        FileViewerPage(
                             padding = padding,
                             file = viewer.file,
                             localPath = viewer.localPath,
@@ -511,102 +536,126 @@ internal fun App(
                             onTextChange = updateViewerText,
                             onSaveText = saveViewerText
                         )
-                        showSettings -> SettingsPage(
-                            padding, themeMode, superDark, showHiddenSystemFiles,
-                            setThemeMode, setSuperDark, setShowHiddenSystemFiles, clearCache
-                        )
-                        showSystemFiles -> systemFilesState.SaveableStateProvider("system-files") {
-                            SystemFilesPage(
-                                padding = padding,
-                                rootPath = systemFilesRoot,
-                                directory = systemFilesDirectory,
-                                revision = systemFilesRevision,
-                                query = systemFilesQuery,
-                                showHiddenFiles = showHiddenSystemFiles,
-                                onDirectoryChange = {
-                                    systemFilesQuery = ""
-                                    systemFilesSearching = false
-                                    systemFilesDirectory = it
-                                },
-                                onRootChange = { root ->
-                                    systemFilesQuery = ""
-                                    systemFilesSearching = false
-                                    systemFilesRoot = root
-                                    systemFilesDirectory = root
-                                    systemFilesRevision++
-                                },
-                                onRefresh = { systemFilesRevision++ },
-                                onExit = {
-                                    systemFilesQuery = ""
-                                    systemFilesSearching = false
-                                    showSystemFiles = false
-                                },
-                                openFile = openLocalFile,
-                                uploadLocal = uploadLocalFile,
-                                cloudDestination = active?.let { it.title + " / " + model.path.joinToString(" / ") { folder -> folder.name } },
-                                handleBack = !viewerExpanded && !systemFilesSearching && !drawerState.isOpen && !showAccounts && !showTypes && !addingS3
-                            )
-                        }
-                        active == null -> FileBrowserPage(
-                            model = Model(), padding = padding, account = null, shared = false,
-                            query = searchQuery, authorize = {}, openFolder = {}, openFile = { _, _ -> }
-                        )
-                        selected == 3 -> PullToRefreshBox(
-                            isRefreshing = model.loading,
-                            onRefresh = { if (!model.loading && !accounts.busy) reload() },
-                            modifier = Modifier.fillMaxSize().padding(padding)
-                        ) {
-                            TrashPage(model, PaddingValues(0.dp), restoreFile)
-                        }
-                        else -> HorizontalPager(
-                            state = tabPagerState,
-                            modifier = Modifier.fillMaxSize().padding(padding),
-                            userScrollEnabled = !appViewerExpanded && !showSettings && !showSystemFiles && !accounts.busy &&
-                                !showFabMenu && !showAccounts && !showTypes && !addingS3 && !showCreateFolderDialog &&
-                                isTabEnabled(active.type, 1),
-                            beyondViewportPageCount = 1,
-                            key = { page -> "browser-tab-$page" }
-                        ) { page ->
-                            val pageModel = if (page == selected) model
-                                else browserModels[page] ?: Model(user = model.user, token = model.token)
-                            val pageSearch = tabSearchState(page)
-                            val initialized = page == selected || browserModels.containsKey(page)
-
-                            PullToRefreshBox(
-                                isRefreshing = pageModel.loading,
-                                onRefresh = {
-                                    if (page == selected && !pageModel.loading && !accounts.busy) reload()
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                if (!initialized) {
-                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator()
-                                    }
+                    } else {
+                        AnimatedContent(
+                            targetState = destination,
+                            transitionSpec = {
+                                val direction = if (targetState.ordinal > initialState.ordinal) {
+                                    AnimatedContentTransitionScope.SlideDirection.Left
                                 } else {
-                                    val globalSearch = pageSearch.results != null && pageSearch.query.isNotBlank()
-                                    FileBrowserPage(
-                                        model = pageModel,
-                                        padding = PaddingValues(0.dp),
-                                        account = active,
-                                        shared = page == 1,
-                                        query = pageSearch.query,
-                                        searchResults = pageSearch.results,
-                                        searchLoading = pageSearch.loading,
-                                        searchError = pageSearch.error,
-                                        authorize = if (page == selected) authorize else ({}),
-                                        openFolder = { file ->
-                                            if (page == selected) {
-                                                tabSearchStates[page] = BrowserTabSearchState()
-                                                if (globalSearch) openSearchFolder(file) else openFolder(file)
-                                            }
+                                    AnimatedContentTransitionScope.SlideDirection.Right
+                                }
+                                val enter = slideIntoContainer(direction, tween(300, easing = FastOutSlowInEasing)) +
+                                    fadeIn(tween(300))
+                                val exit = slideOutOfContainer(direction, tween(300, easing = FastOutSlowInEasing)) +
+                                    fadeOut(tween(220))
+                                enter.togetherWith(exit)
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            label = "Main page"
+                        ) { page ->
+                            when (page) {
+                                MainDestination.SETTINGS -> SettingsPage(
+                                    padding, themeMode, superDark, showHiddenSystemFiles,
+                                    setThemeMode, setSuperDark, setShowHiddenSystemFiles, clearCache
+                                )
+                                MainDestination.SYSTEM_FILES -> systemFilesState.SaveableStateProvider("system-files") {
+                                    SystemFilesPage(
+                                        padding = padding,
+                                        rootPath = systemFilesRoot,
+                                        directory = systemFilesDirectory,
+                                        revision = systemFilesRevision,
+                                        query = systemFilesQuery,
+                                        showHiddenFiles = showHiddenSystemFiles,
+                                        onDirectoryChange = {
+                                            systemFilesQuery = ""
+                                            systemFilesSearching = false
+                                            systemFilesDirectory = it
                                         },
-                                        openFile = { file, queue -> if (page == selected) openFile(file, queue) },
-                                        actions = fileActions.copy(
-                                            trash = if (page == 0) fileActions.trash else null,
-                                            trashMany = if (page == 0) fileActions.trashMany else null
-                                        )
+                                        onRootChange = { root ->
+                                            systemFilesQuery = ""
+                                            systemFilesSearching = false
+                                            systemFilesRoot = root
+                                            systemFilesDirectory = root
+                                            systemFilesRevision++
+                                        },
+                                        onRefresh = { systemFilesRevision++ },
+                                        onExit = {
+                                            systemFilesQuery = ""
+                                            systemFilesSearching = false
+                                            showSystemFiles = false
+                                        },
+                                        openFile = openLocalFile,
+                                        uploadLocal = uploadLocalFile,
+                                        cloudDestination = active?.let { it.title + " / " + model.path.joinToString(" / ") { folder -> folder.name } },
+                                        handleBack = page == destination && !viewerExpanded && !systemFilesSearching &&
+                                            !drawerState.isOpen && !showAccounts && !showTypes && !addingS3
                                     )
+                                }
+                                MainDestination.BROWSER -> if (active == null) FileBrowserPage(
+                                    model = Model(), padding = padding, account = null, shared = false,
+                                    query = searchQuery, authorize = {}, openFolder = {}, openFile = { _, _ -> }
+                                ) else HorizontalPager(
+                                    state = tabPagerState,
+                                    modifier = Modifier.fillMaxSize().padding(padding),
+                                    userScrollEnabled = !appViewerExpanded && !showSettings && !showSystemFiles && !accounts.busy &&
+                                        !showFabMenu && !showAccounts && !showTypes && !addingS3 && !showCreateFolderDialog &&
+                                        isTabEnabled(active.type, 1),
+                                    beyondViewportPageCount = 1,
+                                    key = { page -> "browser-tab-$page" }
+                                ) { page ->
+                                    val pageModel = if (page == selected) model
+                                        else browserModels[page] ?: Model(user = model.user, token = model.token)
+                                    val pageSearch = tabSearchState(page)
+                                    val initialized = page == selected || browserModels.containsKey(page)
+
+                                    UserRefreshBox(
+                                        loading = pageModel.loading,
+                                        enabled = page == selected && !accounts.busy,
+                                        refreshKey = active.key to pageModel.path,
+                                        onRefresh = reload,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        if (!initialized) {
+                                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                CircularProgressIndicator()
+                                            }
+                                        } else {
+                                            val globalSearch = pageSearch.results != null && pageSearch.query.isNotBlank()
+                                            FileBrowserPage(
+                                                model = pageModel,
+                                                padding = PaddingValues(0.dp),
+                                                account = active,
+                                                shared = page == 1,
+                                                query = pageSearch.query,
+                                                searchResults = pageSearch.results,
+                                                searchLoading = pageSearch.loading,
+                                                searchError = pageSearch.error,
+                                                authorize = if (page == selected) authorize else ({}),
+                                                openFolder = { file ->
+                                                    if (page == selected) {
+                                                        tabSearchStates[page] = BrowserTabSearchState()
+                                                        if (globalSearch) openSearchFolder(file) else openFolder(file)
+                                                    }
+                                                },
+                                                openFile = { file, queue -> if (page == selected) openFile(file, queue) },
+                                                actions = fileActions.copy(
+                                                    trash = if (page == 0) fileActions.trash else null,
+                                                    trashMany = if (page == 0) fileActions.trashMany else null
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                MainDestination.PHOTOS -> GooglePhotosPage(model, padding, reload, openFile)
+                                MainDestination.TRASH -> UserRefreshBox(
+                                    loading = model.loading,
+                                    enabled = page == destination && !accounts.busy,
+                                    refreshKey = active?.key to model.path,
+                                    onRefresh = reload,
+                                    modifier = Modifier.fillMaxSize().padding(padding)
+                                ) {
+                                    TrashPage(model, PaddingValues(0.dp), restoreFile)
                                 }
                             }
                         }
@@ -1105,4 +1154,33 @@ private fun AccountTypeButtonsPreview() {
             AccountTypeButton(Icons.Outlined.Key, "Service Account", tr("Nhập file JSON")) {}
         }
     }
+}
+
+
+// Background loads must not activate the floating pull-to-refresh indicator.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UserRefreshBox(
+    loading: Boolean,
+    enabled: Boolean,
+    refreshKey: Any?,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    var userRefreshing by remember(refreshKey) { mutableStateOf(false) }
+    LaunchedEffect(loading, userRefreshing) {
+        if (!loading) userRefreshing = false
+    }
+    PullToRefreshBox(
+        isRefreshing = userRefreshing && loading,
+        onRefresh = {
+            if (enabled && !loading) {
+                userRefreshing = true
+                onRefresh()
+            }
+        },
+        modifier = modifier,
+        content = content
+    )
 }

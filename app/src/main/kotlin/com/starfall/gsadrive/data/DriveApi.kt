@@ -21,7 +21,8 @@ data class DriveFile(
     val webViewUrl: String? = null,
     val parents: List<String> = emptyList(),
     val trashed: Boolean = false,
-    val sharedWithMeTime: String? = null
+    val sharedWithMeTime: String? = null,
+    val photosMediaId: String? = null
 ) {
     val isFolder get() = mimeType == "application/vnd.google-apps.folder"
     val description get() = if (isFolder) tr("Thư mục") else {

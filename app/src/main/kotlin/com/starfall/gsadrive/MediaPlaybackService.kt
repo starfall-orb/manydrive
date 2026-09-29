@@ -57,7 +57,8 @@ data class PlaybackSource(
     val accountType: String,
     val accessToken: String?,
     val s3Config: S3Config?,
-    val cacheFile: File
+    val cacheFile: File,
+    val photosTokenProvider: (() -> String)? = null
 ) {
     fun toMediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(mediaId)
@@ -150,6 +151,18 @@ internal fun resolvePlaybackDataSpec(dataSpec: DataSpec): DataSpec {
         ?: throw IOException(tr("Media URI không hợp lệ."))
     val source = PlaybackSourceRegistry.get(mediaId)
         ?: throw IOException(tr("Không tìm thấy nguồn media: $mediaId"))
+    if (source.accountType == "CONTENT") return dataSpec.withUri(Uri.parse(source.file.id))
+    if (source.accountType == "PHOTOS") {
+        try {
+            val url = com.starfall.gsadrive.data.PhotosApi.mediaUrl(
+                source.photosTokenProvider?.invoke() ?: source.accessToken ?: throw IOException(tr("Cần cấp quyền Google Photos.")),
+                requireNotNull(source.file.photosMediaId), true)
+            return dataSpec.withUri(Uri.parse(url))
+        } catch (error: Exception) {
+            if (error is IOException) throw error
+            throw IOException(error.message ?: tr("Không thể tải Google Photos."), error)
+        }
+    }
     if (source.accountType == "S3") {
         val remote = try {
             runBlocking {

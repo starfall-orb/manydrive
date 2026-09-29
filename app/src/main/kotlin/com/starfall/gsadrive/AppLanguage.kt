@@ -13,6 +13,15 @@ fun tr(vietnamese: String): String = AppLanguage.translate(vietnamese, Locale.ge
 
 internal object AppLanguage {
     private val english = mapOf(
+        "Ảnh và video do ứng dụng tải lên" to "Photos and videos uploaded by this app",
+        "Chưa có ảnh hoặc video được ứng dụng này tải lên Google Photos." to "No photos or videos uploaded by this app to Google Photos yet.",
+        "Không thể tải Google Photos." to "Could not load Google Photos.",
+        "Cần cấp quyền Google Photos." to "Google Photos authorization is required.",
+        "Video Google Photos chưa sẵn sàng. Hãy thử lại sau." to "This Google Photos video is not ready yet. Please try again later.",
+        "Đang phát" to "Playing",
+        "Bài trước" to "Previous track",
+        "Bài tiếp" to "Next track",
+        "Không thể giải mã ảnh." to "Could not decode this image.",
         "Mở bằng ứng dụng khác" to "Open with another app",
         "Sao chép" to "Copy",
         "Sao chép vào đây" to "Copy here",

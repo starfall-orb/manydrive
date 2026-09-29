@@ -183,12 +183,49 @@ class MainActivity : ComponentActivity() {
         if (granted) start?.invoke()
         else Toast.makeText(this, tr("Cần quyền lưu trữ để tải vào Downloads."), Toast.LENGTH_LONG).show()
     }
+    private lateinit var photosLibrary: PhotosLibraryController
+    private var externalOpenRevision = 0
     private var pendingOpenPlayer = false
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handlePlayerIntent()
+        handleExternalMediaIntent()
+    }
+
+    private fun handleExternalMediaIntent() {
+        val incoming = intent ?: return
+        if (incoming.action != Intent.ACTION_VIEW) return
+        val uri = incoming.data ?: return
+        if (uri.scheme !in setOf("content", "file")) return
+        val declaredType = incoming.type
+        incoming.action = null
+        val request = ++externalOpenRevision
+        lifecycleScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) {
+                var name = uri.lastPathSegment ?: tr("Media")
+                if (uri.scheme == "content") {
+                    runCatching {
+                        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                            if (it.moveToFirst() && !it.isNull(0)) name = it.getString(0)
+                        }
+                    }
+                }
+                val resolvedType = declaredType?.takeUnless {
+                    it.isBlank() || '*' in it || it == "application/octet-stream"
+                } ?: contentResolver.getType(uri)
+                val mime = localFileMimeType(name, resolvedType)
+                require(mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")) {
+                    tr("Không thể xem loại tệp này.")
+                }
+                DriveFile(if (uri.scheme == "file") requireNotNull(uri.path) else uri.toString(), name, mime, null)
+            } }
+            if (request != externalOpenRevision) return@launch
+            result.onSuccess { viewerCoordinator.openLocal(it) }.onFailure {
+                Toast.makeText(this@MainActivity, it.message ?: tr("Không thể mở tệp."), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun handlePlayerIntent() {
@@ -223,6 +260,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var folderPicker: ActivityResultLauncher<Uri?>
     private lateinit var filePicker: ActivityResultLauncher<Array<String>>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
+    private var notificationPermissionPending = false
     private val authorization by lazy { Identity.getAuthorizationClient(this) }
     private val googleStore by lazy { AccountStore(this) }
     private val s3Store by lazy { S3AccountStore(this) }
@@ -253,6 +291,8 @@ class MainActivity : ComponentActivity() {
             listCache = listingCache,
             activeAccount = { accountUi.active },
             accessToken = { model.token },
+            photosAccessToken = { photosLibrary.accessToken },
+            photosTokenProvider = { key -> photosLibrary.tokenProvider(key) },
             s3Config = { entry -> s3Accounts.accounts.firstOrNull { it.id == entry.id }?.config },
             currentFiles = { model.files },
             player = { playback },
@@ -282,8 +322,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingOpenPlayer = savedInstanceState?.getBoolean("openPlayer") ?: false
         handlePlayerIntent()
+        photosLibrary = PhotosLibraryController(this, { accountUi.active }) { key, photos ->
+            if (accountUi.active?.key == key) {
+                val updated = photos.copy(user = model.user, token = model.token)
+                if (tab == 4) model = updated else browserTabModels[4] = updated
+            }
+        }
         enableEdgeToEdge()
         notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            notificationPermissionPending = false
             if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 Toast.makeText(this, tr("Không có quyền thông báo: trình phát vẫn chạy nền nhưng điều khiển media có thể không hiện trên thanh thông báo."), Toast.LENGTH_LONG).show()
             }
@@ -447,6 +494,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (pendingAuthorization == null) accountUi.active?.let { refresh() }
+        handleExternalMediaIntent()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -521,6 +569,7 @@ class MainActivity : ComponentActivity() {
         ++generation
         pendingAuthorization = null
         pendingAuthorizationTarget = null
+        photosLibrary.reset()
         pendingPhotosAuthorization = null
         pendingPhotosFiles = emptyList()
         pendingPhotosMode = PhotosFolderUploadMode.RAW
@@ -640,6 +689,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refresh(forceNetwork: Boolean = false) {
+        if (tab == 4) { photosLibrary.refresh(); return }
         val active = accountUi.active ?: return
         val target = newBrowserRefreshTarget(active)
         val location = cacheLocation(target.tab, target.path)
@@ -992,6 +1042,7 @@ class MainActivity : ComponentActivity() {
         ++generation
         pendingAuthorization = null
         pendingAuthorizationTarget = null
+        photosLibrary.reset()
         pendingPhotosAuthorization = null
         pendingPhotosFiles = emptyList()
         pendingPhotosMode = PhotosFolderUploadMode.RAW
@@ -1413,8 +1464,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureNotificationPermission() {
+        if (notificationPermissionPending) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionPending = true
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -1440,6 +1493,7 @@ class MainActivity : ComponentActivity() {
         ++generation
         pendingAuthorization = null
         pendingAuthorizationTarget = null
+        photosLibrary.reset()
         pendingPhotosAuthorization = null
         pendingPhotosFiles = emptyList()
         pendingPhotosMode = PhotosFolderUploadMode.RAW

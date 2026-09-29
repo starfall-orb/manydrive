@@ -374,9 +374,28 @@ private fun TextDocumentViewer(
 
 @Composable
 internal fun ImageViewer(path: String) {
-    val bitmap = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val decoded by androidx.compose.runtime.produceState<Pair<Boolean, androidx.compose.ui.graphics.ImageBitmap?>>(false to null, path) {
+        value = true to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                fun input() = if (path.startsWith("content://"))
+                    context.contentResolver.openInputStream(android.net.Uri.parse(path))
+                    else java.io.File(path).inputStream()
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                input()?.use { BitmapFactory.decodeStream(it, null, options) }
+                options.inSampleSize = 1
+                while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize > 4096) options.inSampleSize *= 2
+                options.inJustDecodeBounds = false
+                input()?.use { BitmapFactory.decodeStream(it, null, options)?.asImageBitmap() }
+            }.getOrNull()
+        }
+    }
+    val bitmap = decoded.second
     if (bitmap == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (!decoded.first) CircularProgressIndicator()
+            else Text(tr("Không thể giải mã ảnh."), color = Color.White)
+        }
     } else {
         Image(
             bitmap = bitmap,
@@ -407,6 +426,7 @@ internal fun MediaSurface(
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val videoWidth = maxWidth * (1f - compactFraction) + 120.dp.coerceAtMost(maxWidth * 0.4f) * compactFraction
+        val shortAudioLayout = maxHeight < 420.dp
         if (!audio) {
             AndroidView(
                 modifier = Modifier.fillMaxHeight().width(videoWidth),
@@ -435,8 +455,23 @@ internal fun MediaSurface(
         } else {
             // Audio has no video surface. Keeping a TextureView here made every mini/full
             // transition resize a hardware surface for no benefit and caused visible hitches.
-            Box(Modifier.fillMaxHeight().width(videoWidth), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.AudioFile, null, tint = Color.LightGray, modifier = Modifier.size(36.dp))
+            Box(Modifier.fillMaxHeight().width(videoWidth)
+                .background(Brush.verticalGradient(listOf(Color(0xFF242644), Color(0xFF10111C)))),
+                contentAlignment = Alignment.Center) {
+                if (compactFraction > 0.5f) {
+                    Icon(Icons.Outlined.AudioFile, null, tint = Color(0xFFC9C3FF), modifier = Modifier.size(36.dp))
+                } else Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp).padding(bottom = 180.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(if (shortAudioLayout) 4.dp else 16.dp)) {
+                    if (!shortAudioLayout) Icon(Icons.Outlined.AudioFile, null, tint = Color(0xFFC9C3FF),
+                        modifier = Modifier.size(96.dp).background(Color.White.copy(alpha = 0.08f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).padding(20.dp))
+                    Text(title, color = Color.White, style = MaterialTheme.typography.titleLarge,
+                        maxLines = if (shortAudioLayout) 1 else 2, overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(if (isPlaying) tr("Đang phát") else tr("Tạm dừng"),
+                        color = Color(0xFFC9C3FF), style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
@@ -466,11 +501,13 @@ internal fun MediaViewer(
     var settingsOpen by remember { mutableStateOf(false) }
     var playing by remember(player) { mutableStateOf(player.isPlaying) }
     var playRequested by remember(player) { mutableStateOf(player.playWhenReady) }
+    var playbackError by remember(player) { mutableStateOf(player.playerError) }
     val controlsInteraction = remember { MutableInteractionSource() }
     val controlsPressed by controlsInteraction.collectIsPressedAsState()
     val compact = compactFraction > 0.85f
     val currentInteractive by rememberUpdatedState(interactive)
     val currentCompact by rememberUpdatedState(compact)
+    val keepControls by rememberUpdatedState(alwaysShowControls)
     val currentExpand by rememberUpdatedState(onExpand)
     val slideshowEnabled by PlaybackSettings.slideshowEnabled.collectAsState()
     var position by remember(player) { mutableLongStateOf(0L) }
@@ -481,8 +518,8 @@ internal fun MediaViewer(
     var feedback by remember(player) { mutableStateOf<String?>(null) }
     var feedbackVersion by remember(player) { mutableLongStateOf(0L) }
 
-    LaunchedEffect(controlsVisible, interactionVersion, playing, dragging, settingsOpen, controlsPressed, compact) {
-        if (controlsVisible && playing && !dragging && !settingsOpen && !controlsPressed && !compact) {
+    LaunchedEffect(controlsVisible, interactionVersion, playing, dragging, settingsOpen, controlsPressed, compact, alwaysShowControls) {
+        if (!alwaysShowControls && controlsVisible && playing && !dragging && !settingsOpen && !controlsPressed && !compact) {
             delay(3000)
             controlsVisible = false
         }
@@ -492,6 +529,7 @@ internal fun MediaViewer(
         val listener = object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 playing = player.isPlaying
+                playbackError = player.playerError
                 playRequested = player.playWhenReady
                 duration = player.duration.coerceAtLeast(0L)
                 position = player.currentPosition.coerceAtLeast(0L)
@@ -518,7 +556,7 @@ internal fun MediaViewer(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).pointerInput(player) {
-                detectTapGestures(onTap = { if (!currentInteractive) return@detectTapGestures; if (currentCompact) currentExpand() else { controlsVisible = !controlsVisible; interactionVersion++ } }, onDoubleTap = { offset ->
+                detectTapGestures(onTap = { if (!currentInteractive) return@detectTapGestures; if (currentCompact) currentExpand() else { controlsVisible = keepControls || !controlsVisible; interactionVersion++ } }, onDoubleTap = { offset ->
                     if (!currentInteractive) return@detectTapGestures
                     if (currentCompact) {
                         currentExpand()
@@ -537,6 +575,14 @@ internal fun MediaViewer(
         val miniBackground = MaterialTheme.colorScheme.surfaceContainerHigh
         val miniContentColor = MaterialTheme.colorScheme.onSurface
         content()
+        if (!compact && interactive) playbackError?.let { failure ->
+            CopyableError(
+                failure.cause?.message ?: failure.message ?: tr("Không thể mở media."),
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.85f)).padding(20.dp),
+                color = Color.White
+            )
+        }
         if (miniChromeAlpha > 0f && videoWidth < maxWidth) {
             Box(
                 Modifier.align(Alignment.CenterEnd)
@@ -572,13 +618,23 @@ internal fun MediaViewer(
         }
         val fullControlsAlpha = ((0.55f - compactFraction) / 0.20f).coerceIn(0f, 1f)
         val fullControlsInteractive = fullControlsAlpha > 0.98f
-        if (controlsVisible && interactive) Column(
+        if ((alwaysShowControls || controlsVisible) && interactive) Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("media-controls")
                 .graphicsLayer { alpha = fullControlsAlpha }
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (alwaysShowControls) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(enabled = fullControlsInteractive && player.hasPreviousMediaItem(),
+                    onClick = { player.seekToPreviousMediaItem(); interactionVersion++ }) {
+                    Text(tr("Bài trước"), color = if (player.hasPreviousMediaItem()) Color.White else Color.Gray)
+                }
+                TextButton(enabled = fullControlsInteractive && player.hasNextMediaItem(),
+                    onClick = { player.seekToNextMediaItem(); interactionVersion++ }) {
+                    Text(tr("Bài tiếp"), color = if (player.hasNextMediaItem()) Color.White else Color.Gray)
+                }
+            }
             val progressColor = Color.White.copy(alpha = 0.78f)
             Slider(
                 value = if (dragging) scrubPosition else position.toFloat().coerceIn(0f, duration.toFloat()),
@@ -669,6 +725,7 @@ internal fun MediaViewer(
                             if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) player.pause()
                             else {
                                 if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                                if (player.playerError != null) player.prepare()
                                 player.play()
                             }
                             interactionVersion++
@@ -683,7 +740,7 @@ internal fun MediaViewer(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(enabled = fullControlsInteractive, onClick = { onToggleFullscreen(); interactionVersion++ }) {
+                if (!alwaysShowControls) IconButton(enabled = fullControlsInteractive, onClick = { onToggleFullscreen(); interactionVersion++ }) {
                     Icon(
                         if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
                         if (fullscreen) tr("Thoát toàn màn hình") else tr("Toàn màn hình"),

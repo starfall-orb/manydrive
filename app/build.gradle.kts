@@ -24,8 +24,8 @@ android {
         applicationId = "com.starfall.gsadrive"
         minSdk = 24
         targetSdk = 35
-        versionCode = 18
-        versionName = "3.0.2"
+        versionCode = 19
+        versionName = "3.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -94,6 +94,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.11.0")
     implementation("androidx.media3:media3-ui-compose-material3:1.11.0")
     implementation("androidx.media3:media3-session:1.11.0")
+    implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
