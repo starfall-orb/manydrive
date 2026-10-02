@@ -1,20 +1,28 @@
 package com.starfall.gsadrive
 
+import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -27,16 +35,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import com.starfall.gsadrive.data.DriveFile
-import com.starfall.gsadrive.ui.FileViewerPage
+import com.starfall.gsadrive.ui.ExpandableMediaPlayer
 import com.starfall.gsadrive.ui.ImageViewer
 import com.starfall.gsadrive.ui.theme.ManyDriveTheme
 import com.starfall.gsadrive.ui.theme.ThemeMode
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,15 +52,32 @@ import kotlinx.coroutines.withContext
 /**
  * Lightweight entry point for media opened from another app.
  *
- * This intentionally avoids initializing the ManyDrive account/browser shell. Images are decoded
- * directly and audio/video use an Activity-owned ExoPlayer, so Back returns directly to the app
- * that launched the viewer.
+ * The Activity only hosts the viewer. Audio/video playback is owned by the same
+ * [MediaPlaybackService] used by the main app, so notification controls and background playback
+ * have identical behavior without initializing the ManyDrive browser/account shell.
  */
 class ExternalMediaActivity : ComponentActivity() {
     private var file by mutableStateOf<DriveFile?>(null)
     private var loading by mutableStateOf(true)
     private var error by mutableStateOf<String?>(null)
-    private var player by mutableStateOf<ExoPlayer?>(null)
+    private var playback by mutableStateOf<MediaController?>(null)
+    private var sources: List<PlaybackSource>? = null
+    private var playbackStartedFor: String? = null
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var notificationPermissionPending = false
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notificationPermissionPending = false
+        if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(
+                this,
+                tr("Không có quyền thông báo: trình phát vẫn chạy nền nhưng điều khiển media có thể không hiện trên thanh thông báo."),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,7 +95,7 @@ class ExternalMediaActivity : ComponentActivity() {
                     file = file,
                     loading = loading,
                     error = error,
-                    player = player,
+                    player = playback,
                     onBack = ::finish
                 )
             }
@@ -92,9 +117,14 @@ class ExternalMediaActivity : ComponentActivity() {
             runCatching { withContext(Dispatchers.IO) { resolveFile(uri, declaredType) } }
                 .onSuccess { resolved ->
                     file = resolved
-                    loading = false
-                    if (resolved.mimeType.startsWith("video/") || resolved.mimeType.startsWith("audio/")) {
-                        startPlayer(uri, resolved)
+                    error = null
+                    if (isMediaPreview(resolved)) {
+                        ensureNotificationPermission()
+                        sources = registerLocalPlaybackSources(listOf(resolved))
+                        ensurePlaybackController()
+                        maybeStartPlayback()
+                    } else {
+                        loading = false
                     }
                 }
                 .onFailure {
@@ -102,6 +132,42 @@ class ExternalMediaActivity : ComponentActivity() {
                     error = it.message ?: tr("Không thể mở tệp.")
                 }
         }
+    }
+
+    private fun ensurePlaybackController() {
+        if (playback != null || controllerFuture != null) return
+        val sessionToken = SessionToken(this, ComponentName(this, MediaPlaybackService::class.java))
+        controllerFuture = MediaController.Builder(this, sessionToken).buildAsync().also { future ->
+            future.addListener({
+                runCatching { future.get() }
+                    .onSuccess { controller ->
+                        playback = controller
+                        maybeStartPlayback()
+                    }
+                    .onFailure { failure ->
+                        controllerFuture = null
+                        loading = false
+                        error = failure.message ?: tr("Không thể kết nối dịch vụ phát media.")
+                    }
+            }, ContextCompat.getMainExecutor(this))
+        }
+    }
+
+    private fun maybeStartPlayback() {
+        val selected = file ?: return
+        if (!isMediaPreview(selected) || playbackStartedFor == selected.id) return
+        val controller = playback ?: return
+        val registeredSources = sources ?: return
+        runCatching { startLocalPlayback(this, controller, selected, registeredSources) }
+            .onSuccess {
+                playbackStartedFor = selected.id
+                loading = false
+                error = null
+            }
+            .onFailure {
+                loading = false
+                error = it.message ?: tr("Không thể mở media.")
+            }
     }
 
     private fun resolveFile(uri: Uri, declaredType: String?): DriveFile {
@@ -126,28 +192,19 @@ class ExternalMediaActivity : ComponentActivity() {
         return DriveFile(id, name, mime, null)
     }
 
-    private fun startPlayer(uri: Uri, mediaFile: DriveFile) {
-        player?.release()
-        player = ExoPlayer.Builder(this).build().apply {
-            setMediaItem(
-                MediaItem.Builder()
-                    .setUri(if (uri.scheme == "file") Uri.fromFile(File(mediaFile.id)) else uri)
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(mediaFile.name).build())
-                    .build()
-            )
-            prepare()
-            playWhenReady = true
+    private fun ensureNotificationPermission() {
+        if (notificationPermissionPending) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionPending = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    override fun onStop() {
-        player?.pause()
-        super.onStop()
-    }
-
     override fun onDestroy() {
-        player?.release()
-        player = null
+        controllerFuture?.let(MediaController::releaseFuture)
+        playback = null
         super.onDestroy()
     }
 }
@@ -157,16 +214,23 @@ private fun ExternalMediaScreen(
     file: DriveFile?,
     loading: Boolean,
     error: String?,
-    player: ExoPlayer?,
+    player: MediaController?,
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        when {
-            loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+    when {
+        loading -> Box(
+            Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
 
-            error != null -> Column(
+        error != null -> Box(
+            Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            Column(
                 Modifier.align(Alignment.Center).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -174,26 +238,29 @@ private fun ExternalMediaScreen(
                 Text(error, color = Color.White, style = MaterialTheme.typography.bodyLarge)
                 FilledTonalButton(onClick = onBack) { Text(tr("Đóng")) }
             }
-
-            file == null -> Unit
-
-            file.mimeType.startsWith("image/") -> ImageViewer(file.id)
-
-            player != null -> FileViewerPage(
-                padding = PaddingValues(0.dp),
-                file = file,
-                localPath = file.id,
-                text = null,
-                loading = false,
-                error = null,
-                saving = false,
-                player = player,
-                onBack = onBack,
-                onTextChange = {},
-                onSaveText = {}
-            )
-
-            else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
+
+        file == null -> Unit
+
+        file.mimeType.startsWith("image/") -> Box(
+            Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            ImageViewer(file.id)
+        }
+
+        player != null -> ExpandableMediaPlayer(
+            player = player,
+            minimized = false,
+            topPadding = 0.dp,
+            miniBounds = null,
+            onMinimize = onBack,
+            onExpand = {},
+            onClose = onBack,
+            queue = listOf(file),
+            index = 0,
+            previewPaths = emptyMap(),
+            error = null,
+            onSwipeTo = {}
+        )
     }
 }

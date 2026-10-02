@@ -186,21 +186,12 @@ internal class ViewerCoordinator(
             swipeQueue = browsingQueue, swipeIndex = browsingQueue.indexOfFirst { it.id == file.id }, previewPaths = images)
         if (isMediaPreview(file)) {
             requestNotificationPermission()
-            val sources = browsingQueue.filter(::isMediaPreview).map {
-                PlaybackSource("LOCAL:${it.id}", it, if (it.id.startsWith("content://")) "CONTENT" else "LOCAL", null, null, File(it.id))
-            }
-            PlaybackSourceRegistry.replace(sources)
+            val sources = registerLocalPlaybackSources(browsingQueue)
             scope.launch {
                 val result = runCatching {
                     val controller = player() ?: awaitPlayer()
                     if (request != generation) return@launch
-                    val index = sources.indexOfFirst { it.file.id == file.id }
-                    val id = sources[index].mediaId
-                    val position = if (controller.currentMediaItem?.mediaId == id) controller.currentPosition
-                        else PlaybackProgress.read(context, id)
-                    controller.setMediaItems(sources.map(PlaybackSource::toMediaItem), index, position)
-                    controller.prepare()
-                    controller.play()
+                    startLocalPlayback(context, controller, file, sources)
                 }
                 if (request == generation) state = state?.copy(loading = false, error = result.exceptionOrNull()?.message)
             }
