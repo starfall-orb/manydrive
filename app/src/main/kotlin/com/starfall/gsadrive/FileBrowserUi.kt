@@ -2,6 +2,7 @@ package com.starfall.gsadrive
 
 import androidx.activity.compose.BackHandler
 import com.starfall.gsadrive.ui.CopyableError
+import com.starfall.gsadrive.ui.FolderZoomTransition
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -321,6 +322,8 @@ internal fun FileBrowserPage(
     browserKey: String = account?.key ?: "empty",
     showEmptyMessage: Boolean = account != null,
     localMenu: ((DriveFile) -> Unit)? = null,
+    folderTransitionKey: String? = null,
+    folderTransitionDepth: Int = 0,
     toolbarAction: (@Composable () -> Unit)? = null
 ) {
     val scopeKey = "${browserKey}:${if (shared) 1 else 0}:${model.path.lastOrNull()?.id.orEmpty()}"
@@ -503,48 +506,67 @@ internal fun FileBrowserPage(
             }
         }
 
-        if (showEmptyMessage && !model.loading && !searchLoading && model.message == null && searchError == null && visible.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (query.isBlank()) tr("There are no files in this location.") else tr("No matching files found."),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else if (grid) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(visible, key = { it.id }) { file ->
-                    FileGridCard(
-                        file,
-                        shared && !globalSearch,
-                        accessToken = model.token,
-                        onOpen = openFolder,
-                        onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
-                        selectionMode = selectionMode,
-                        selected = file.id in selectedSet,
-                        onToggleSelection = ::toggleSelection,
-                        onLongSelect = ::enterSelection,
-                        onMenu = if (account != null || localMenu != null) ::showMenu else null
-                    )
+        val fileListContent: @Composable () -> Unit = {
+            if (showEmptyMessage && !model.loading && !searchLoading && model.message == null && searchError == null && visible.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(if (query.isBlank()) tr("There are no files in this location.") else tr("No matching files found."),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-        } else if (shared && !globalSearch) {
-            val sections = remember(visible) { visible.groupBy(::sharedSection) }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                sections.forEach { (section, files) ->
-                    item("section:$section") {
-                        Text(section, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
+            } else if (grid) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(visible, key = { it.id }) { file ->
+                        FileGridCard(
+                            file,
+                            shared && !globalSearch,
+                            accessToken = model.token,
+                            onOpen = openFolder,
+                            onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
+                            selectionMode = selectionMode,
+                            selected = file.id in selectedSet,
+                            onToggleSelection = ::toggleSelection,
+                            onLongSelect = ::enterSelection,
+                            onMenu = if (account != null || localMenu != null) ::showMenu else null
+                        )
                     }
-                    items(files, key = { it.id }) { file ->
+                }
+            } else if (shared && !globalSearch) {
+                val sections = remember(visible) { visible.groupBy(::sharedSection) }
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    sections.forEach { (section, files) ->
+                        item("section:$section") {
+                            Text(section, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
+                        }
+                        items(files, key = { it.id }) { file ->
+                            FileListRow(
+                                file,
+                                shared = true,
+                                onOpen = openFolder,
+                                onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
+                                selectionMode = selectionMode,
+                                selected = file.id in selectedSet,
+                                onToggleSelection = ::toggleSelection,
+                                onLongSelect = ::enterSelection,
+                                onMenu = if (account != null || localMenu != null) ::showMenu else null
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(visible, key = { it.id }) { file ->
                         FileListRow(
                             file,
-                            shared = true,
+                            shared = false,
                             onOpen = openFolder,
                             onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
                             selectionMode = selectionMode,
@@ -556,23 +578,17 @@ internal fun FileBrowserPage(
                     }
                 }
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(visible, key = { it.id }) { file ->
-                    FileListRow(
-                        file,
-                        shared = false,
-                        onOpen = openFolder,
-                        onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
-                        selectionMode = selectionMode,
-                        selected = file.id in selectedSet,
-                        onToggleSelection = ::toggleSelection,
-                        onLongSelect = ::enterSelection,
-                        onMenu = if (account != null || localMenu != null) ::showMenu else null
-                    )
-                }
+        }
+        if (folderTransitionKey != null) {
+            FolderZoomTransition(
+                key = folderTransitionKey,
+                depth = folderTransitionDepth,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                fileListContent()
             }
+        } else {
+            fileListContent()
         }
     }
     actionFile?.takeIf { account != null }?.let { selected ->

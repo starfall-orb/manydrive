@@ -105,6 +105,26 @@ internal fun GooglePhotosPage(
                         }
                     }
 
+                    PhotoMosaicKind.WIDE -> {
+                        val file = block.files.first()
+                        PhotoMosaicTile(
+                            file = file,
+                            allFiles = model.files,
+                            selectionMode = selectionMode,
+                            selected = file.id in selectedIds,
+                            featured = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.65f),
+                            onOpen = open,
+                            onToggleSelection = { selectedIds = togglePhotoSelection(selectedIds, file.id) },
+                            onLongSelect = {
+                                selectedIds = selectedIds + file.id
+                                actionTarget = file
+                            }
+                        )
+                    }
+
                     PhotoMosaicKind.HERO_LEFT, PhotoMosaicKind.HERO_RIGHT -> {
                         val hero = block.files.first()
                         val side = block.files.drop(1)
@@ -239,7 +259,7 @@ internal fun GooglePhotosPage(
     }
 }
 
-private enum class PhotoMosaicKind { ROW, HERO_LEFT, HERO_RIGHT }
+private enum class PhotoMosaicKind { ROW, WIDE, HERO_LEFT, HERO_RIGHT }
 
 private data class PhotoMosaicBlock(
     val kind: PhotoMosaicKind,
@@ -252,24 +272,46 @@ private fun buildPhotoMosaic(files: List<DriveFile>): List<PhotoMosaicBlock> {
     if (files.isEmpty()) return emptyList()
     val blocks = mutableListOf<PhotoMosaicBlock>()
     var index = 0
-    var heroLeft = true
-    var phase = 0
+
+    fun addSmallRow() {
+        if (index >= files.size) return
+        val count = minOf(3, files.size - index)
+        blocks += PhotoMosaicBlock(PhotoMosaicKind.ROW, files.subList(index, index + count))
+        index += count
+    }
+
+    // Match the Google Photos rhythm: two compact rows before the first featured card.
+    addSmallRow()
+    addSmallRow()
+
+    val featuredCycle = listOf(
+        PhotoMosaicKind.WIDE,
+        PhotoMosaicKind.HERO_RIGHT,
+        PhotoMosaicKind.WIDE,
+        PhotoMosaicKind.HERO_LEFT
+    )
+    var featuredIndex = 0
+
     while (index < files.size) {
-        val remaining = files.size - index
-        val wantsHero = phase % 2 == 1 && remaining >= 4
-        if (wantsHero) {
-            blocks += PhotoMosaicBlock(
-                if (heroLeft) PhotoMosaicKind.HERO_LEFT else PhotoMosaicKind.HERO_RIGHT,
-                files.subList(index, index + 4)
-            )
-            index += 4
-            heroLeft = !heroLeft
+        val kind = featuredCycle[featuredIndex % featuredCycle.size]
+        val required = if (kind == PhotoMosaicKind.WIDE) 1 else 4
+
+        if (files.size - index >= required) {
+            blocks += PhotoMosaicBlock(kind, files.subList(index, index + required))
+            index += required
+            featuredIndex++
         } else {
-            val count = minOf(3, remaining)
-            blocks += PhotoMosaicBlock(PhotoMosaicKind.ROW, files.subList(index, index + count))
-            index += count
+            // Not enough media for a complete featured block: finish with compact rows, no holes.
+            while (index < files.size) addSmallRow()
+            break
         }
-        phase++
+
+        // Separate featured cards with one or two compact rows. Keep the choice stable for
+        // the current media order so recomposition/scrolling never reshuffles the layout.
+        val separatorRows = 1 + ((blocks.last().key.hashCode() and Int.MAX_VALUE) % 2)
+        repeat(separatorRows) {
+            if (index < files.size) addSmallRow()
+        }
     }
     return blocks
 }

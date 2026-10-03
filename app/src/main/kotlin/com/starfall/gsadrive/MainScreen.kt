@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.starfall.gsadrive.data.*
 import com.starfall.gsadrive.ui.FileViewerPage
-import com.starfall.gsadrive.ui.FolderZoomTransition
 import com.starfall.gsadrive.ui.ExpandableMediaPlayer
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
@@ -646,35 +645,31 @@ internal fun App(
                                             val folderKey = pageModel.path.joinToString(separator = "|") { folder ->
                                                 "${folder.id.length}:${folder.id}"
                                             }
-                                            FolderZoomTransition(
-                                                key = folderKey,
-                                                depth = pageModel.path.size,
-                                                modifier = Modifier.fillMaxSize()
-                                            ) {
-                                                FileBrowserPage(
-                                                    model = pageModel,
-                                                    padding = PaddingValues(0.dp),
-                                                    account = active,
-                                                    shared = page == 1,
-                                                    query = pageSearch.query,
-                                                    searchResults = pageSearch.results,
-                                                    searchLoading = pageSearch.loading,
-                                                    searchError = pageSearch.error,
-                                                    authorize = if (page == selected) authorize else ({}),
-                                                    openFolder = { file ->
-                                                        if (page == selected) {
-                                                            tabSearchStates[page] = BrowserTabSearchState()
-                                                            if (globalSearch) openSearchFolder(file) else openFolder(file)
-                                                        }
-                                                    },
-                                                    openFile = { file, queue -> if (page == selected) openFile(file, queue) },
-                                                    actions = fileActions.copy(
-                                                        localRootPath = systemFilesRoot,
-                                                        trash = if (page == 0) fileActions.trash else null,
-                                                        trashMany = if (page == 0) fileActions.trashMany else null
-                                                    )
-                                                )
-                                            }
+                                            FileBrowserPage(
+                                                model = pageModel,
+                                                padding = PaddingValues(0.dp),
+                                                account = active,
+                                                shared = page == 1,
+                                                query = pageSearch.query,
+                                                searchResults = pageSearch.results,
+                                                searchLoading = pageSearch.loading,
+                                                searchError = pageSearch.error,
+                                                authorize = if (page == selected) authorize else ({}),
+                                                openFolder = { file ->
+                                                    if (page == selected) {
+                                                        tabSearchStates[page] = BrowserTabSearchState()
+                                                        if (globalSearch) openSearchFolder(file) else openFolder(file)
+                                                    }
+                                                },
+                                                openFile = { file, queue -> if (page == selected) openFile(file, queue) },
+                                                actions = fileActions.copy(
+                                                    localRootPath = systemFilesRoot,
+                                                    trash = if (page == 0) fileActions.trash else null,
+                                                    trashMany = if (page == 0) fileActions.trashMany else null
+                                                ),
+                                                folderTransitionKey = folderKey,
+                                                folderTransitionDepth = pageModel.path.size
+                                            )
                                         }
                                     }
                                 }

@@ -28,7 +28,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.starfall.gsadrive.data.DriveFile
 import com.starfall.gsadrive.data.LocalFileAccess
-import com.starfall.gsadrive.ui.FolderZoomTransition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -218,24 +217,21 @@ internal fun SystemFilesPage(
             val directoryDepth = remember(directory) {
                 File(directory).absolutePath.split(File.separatorChar).count { it.isNotEmpty() }
             }
-            FolderZoomTransition(
-                key = directory,
-                depth = directoryDepth,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                FileBrowserPage(
-                    model,
-                    PaddingValues(0.dp),
-                    account = null,
-                    shared = false,
-                    query = query,
-                    authorize = {},
-                    openFolder = { onDirectoryChange(it.id) },
-                    openFile = openFile,
-                    browserKey = "local:$rootPath:$directory",
-                    showEmptyMessage = true,
-                    localMenu = { actionFile = it },
-                    toolbarAction = {
+            FileBrowserPage(
+                model,
+                PaddingValues(0.dp),
+                account = null,
+                shared = false,
+                query = query,
+                authorize = {},
+                openFolder = { onDirectoryChange(it.id) },
+                openFile = openFile,
+                browserKey = "local:$rootPath:$directory",
+                showEmptyMessage = true,
+                localMenu = { actionFile = it },
+                folderTransitionKey = directory,
+                folderTransitionDepth = directoryDepth,
+                toolbarAction = {
                     Box {
                         IconButton(onClick = { storageMenu = true }) {
                             Icon(Icons.Outlined.Storage, tr("Choose storage"))
@@ -269,8 +265,7 @@ internal fun SystemFilesPage(
                         }
                     }
                 }
-                )
-            }
+            )
         }
     }
 
