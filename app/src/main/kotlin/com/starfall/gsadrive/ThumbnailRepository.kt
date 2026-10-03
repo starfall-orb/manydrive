@@ -33,7 +33,7 @@ internal object ThumbnailRepository {
                 val status = connection.responseCode
                 if (status !in 200..299) throw IOException("Thumbnail HTTP $status")
                 val bitmap = connection.inputStream.use { input ->
-                    BitmapFactory.decodeStream(input) ?: throw IOException(tr("Không thể giải mã thumbnail"))
+                    BitmapFactory.decodeStream(input) ?: throw IOException(tr("Unable to decode thumbnails"))
                 }
                 synchronized(cache) { cache.put(url, bitmap) }
                 return bitmap

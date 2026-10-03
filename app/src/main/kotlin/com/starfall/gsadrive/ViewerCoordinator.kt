@@ -85,8 +85,8 @@ internal class ViewerCoordinator(
     fun open(file: DriveFile, minimized: Boolean = false, swipeQueue: List<DriveFile>? = null) {
         if (file.isFolder) return
         if (!isPreviewable(file)) {
-            val type = file.mimeType.ifBlank { tr("này") }
-            Toast.makeText(context, tr("Chưa hỗ trợ xem loại tệp $type"), Toast.LENGTH_SHORT).show()
+            val type = file.mimeType.ifBlank { tr("this type") }
+            Toast.makeText(context, tr("Previewing file type $type is not supported yet."), Toast.LENGTH_SHORT).show()
             return
         }
         val account = activeAccount() ?: return
@@ -143,7 +143,7 @@ internal class ViewerCoordinator(
                     }
                     val text = if (isTextPreview(file)) {
                         require(target.length() <= MAX_TEXT_PREVIEW_BYTES) {
-                            tr("Tệp text quá lớn để sửa trực tiếp (giới hạn 4 MB).")
+                            tr("This text file is too large to edit (4 MB limit).")
                         }
                         target.readText(Charsets.UTF_8)
                     } else null
@@ -162,7 +162,7 @@ internal class ViewerCoordinator(
                 }
             }.onFailure {
                 if (request == generation && state?.file?.id == file.id) {
-                    state = state?.copy(loading = false, error = it.message ?: tr("Không thể mở tệp."))
+                    state = state?.copy(loading = false, error = it.message ?: tr("Cannot open file."))
                 }
             }
         }
@@ -171,7 +171,7 @@ internal class ViewerCoordinator(
     fun openLocal(file: DriveFile, queue: List<DriveFile> = listOf(file), minimized: Boolean = false) {
         if (file.isFolder) return
         if (!isPreviewable(file)) {
-            Toast.makeText(context, tr("Không thể xem loại tệp này."), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, tr("This file type cannot be previewed."), Toast.LENGTH_SHORT).show()
             return
         }
         localPreview = true
@@ -211,11 +211,11 @@ internal class ViewerCoordinator(
                     withContext(Dispatchers.IO) {
                         if (file.id.startsWith("content://")) {
                             context.contentResolver.openInputStream(android.net.Uri.parse(file.id))?.use { }
-                                ?: error(tr("Không thể đọc tệp này."))
+                                ?: error(tr("Cannot read this file."))
                             return@withContext null
                         }
                         val local = File(file.id)
-                        check(local.isFile && local.canRead()) { tr("Không thể đọc tệp này.") }
+                        check(local.isFile && local.canRead()) { tr("Cannot read this file.") }
                         if (isTextPreview(file)) {
                             val bytes = local.inputStream().use { input ->
                                 val output = java.io.ByteArrayOutputStream()
@@ -228,7 +228,7 @@ internal class ViewerCoordinator(
                                 }
                                 output.toByteArray()
                             }
-                            check(bytes.size <= MAX_TEXT_PREVIEW_BYTES) { tr("Nội dung vượt giới hạn 4 MB.") }
+                            check(bytes.size <= MAX_TEXT_PREVIEW_BYTES) { tr("Content exceeds the 4 MB limit.") }
                             bytes.toString(Charsets.UTF_8)
                         } else null
                     }
@@ -252,11 +252,11 @@ internal class ViewerCoordinator(
         val config = if (account.type == AccountType.S3) s3Config(account) else null
         val token = if (file.photosMediaId != null) photosAccessToken() else if (account.type == AccountType.S3) null else accessToken()
         if (account.type != AccountType.S3 && token == null) {
-            state = ViewerState(file = file, error = tr("Cần cấp quyền truy cập trước khi phát media."))
+            state = ViewerState(file = file, error = tr("Access permissions need to be granted before playing media."))
             return
         }
         if (account.type == AccountType.S3 && config == null) {
-            state = ViewerState(file = file, error = tr("Không tìm thấy cấu hình S3."))
+            state = ViewerState(file = file, error = tr("S3 configuration not found."))
             return
         }
 
@@ -305,7 +305,7 @@ internal class ViewerCoordinator(
                 }
             }.onFailure {
                 if (request == generation && state?.file?.id == file.id) {
-                    state = state?.copy(error = it.message ?: tr("Không thể mở media."))
+                    state = state?.copy(error = it.message ?: tr("Cannot open media."))
                 }
             }
         }
@@ -370,7 +370,7 @@ internal class ViewerCoordinator(
         if (!local && account == null) return
         val content = text.toByteArray(Charsets.UTF_8)
         if (content.size > MAX_TEXT_PREVIEW_BYTES) {
-            Toast.makeText(context, tr("Nội dung vượt giới hạn 4 MB."), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, tr("Content exceeds the 4 MB limit."), Toast.LENGTH_SHORT).show()
             return
         }
         val request = generation
@@ -385,7 +385,7 @@ internal class ViewerCoordinator(
                     requireNotNull(account)
                     when (account.type) {
                         AccountType.S3 -> {
-                            val config = s3Config(account) ?: error(tr("Không tìm thấy cấu hình S3."))
+                            val config = s3Config(account) ?: error(tr("S3 configuration not found."))
                             val temporary = File.createTempFile("manydrive-text-", ".tmp", context.cacheDir)
                             try {
                                 temporary.writeBytes(content)
@@ -396,7 +396,7 @@ internal class ViewerCoordinator(
                             }
                         }
                         AccountType.GOOGLE, AccountType.SERVICE -> {
-                            val token = accessToken() ?: error(tr("Cần cấp quyền ghi trước khi lưu."))
+                            val token = accessToken() ?: error(tr("Write permission is required before saving."))
                             DriveApi.updateContent(token, current.file.id,
                                 current.file.mimeType.ifBlank { "text/plain; charset=UTF-8" }, content)
                         }
@@ -408,7 +408,7 @@ internal class ViewerCoordinator(
             if (request == generation && state?.file?.id == current.file.id) {
                 state = state?.copy(saving = false, error = result.exceptionOrNull()?.message)
                 Toast.makeText(context,
-                    if (result.isSuccess) tr("Đã lưu thay đổi.") else tr("Không thể lưu thay đổi."),
+                    if (result.isSuccess) tr("Changes saved.") else tr("Unable to save changes."),
                     Toast.LENGTH_SHORT).show()
             }
         }
@@ -420,12 +420,12 @@ internal class ViewerCoordinator(
         temporary.delete()
         if (file.photosMediaId != null) {
             com.starfall.gsadrive.data.PhotosApi.downloadImage(
-                photosTokenProvider(account.key)?.invoke() ?: error(tr("Cần cấp quyền Google Photos.")), file.photosMediaId, temporary)
+                photosTokenProvider(account.key)?.invoke() ?: error(tr("Google Photos authorization is required.")), file.photosMediaId, temporary)
         } else when (account.type) {
             AccountType.S3 -> S3Api.downloadTo(
-                s3Config(account) ?: error(tr("Không tìm thấy cấu hình S3.")), file.id, temporary)
+                s3Config(account) ?: error(tr("S3 configuration not found.")), file.id, temporary)
             AccountType.GOOGLE, AccountType.SERVICE -> DriveApi.downloadTo(
-                accessToken() ?: error(tr("Cần cấp quyền truy cập trước khi mở tệp.")), file.id, temporary)
+                accessToken() ?: error(tr("Access permissions need to be granted before opening the file.")), file.id, temporary)
         }
         if (!temporary.renameTo(target)) {
             temporary.copyTo(target, overwrite = true)

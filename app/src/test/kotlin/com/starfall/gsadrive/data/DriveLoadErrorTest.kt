@@ -15,7 +15,7 @@ class DriveLoadErrorTest {
         }
         val error = GoogleJsonResponseException(HttpResponseException.Builder(403, "Forbidden", HttpHeaders()), details)
         val message = driveLoadError(error)
-        assertTrue(message.contains("chưa được bật"))
+        assertTrue(message.contains("not enabled"))
         assertTrue(message.contains("HTTP 403: accessNotConfigured"))
     }
 

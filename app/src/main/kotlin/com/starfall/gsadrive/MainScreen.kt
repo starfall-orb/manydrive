@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.starfall.gsadrive.data.*
 import com.starfall.gsadrive.ui.FileViewerPage
+import com.starfall.gsadrive.ui.FolderZoomTransition
 import com.starfall.gsadrive.ui.ExpandableMediaPlayer
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
@@ -89,7 +90,8 @@ internal fun App(
     searchDrive: (String, (Result<List<DriveFile>>) -> Unit) -> Unit = { _, done -> done(Result.success(emptyList())) },
     openSearchFolder: (DriveFile) -> Unit = {},
     uploadFolder: () -> Unit = {},
-    restoreFile: (DriveFile) -> Unit = {},
+    restoreTrashFiles: (List<DriveFile>) -> Unit = {},
+    deleteTrashFiles: (List<DriveFile>) -> Unit = {},
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     superDark: Boolean = false,
     setThemeMode: (ThemeMode) -> Unit = {},
@@ -108,7 +110,10 @@ internal fun App(
     expandViewer: () -> Unit = {},
     browserModels: Map<Int, Model> = emptyMap(),
     openLocalFile: (DriveFile, List<DriveFile>) -> Unit = { _, _ -> },
-    uploadLocalFile: (DriveFile, (Result<Unit>) -> Unit) -> Unit = { _, done -> done(Result.failure(IllegalStateException("No cloud account"))) }
+    uploadLocalFile: (DriveFile, (Result<Unit>) -> Unit) -> Unit = { _, done -> done(Result.failure(IllegalStateException("No cloud account"))) },
+    transferLocalToCloud: (DriveFile, String, String?, Boolean, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, done ->
+        done(Result.failure(IllegalStateException("No cloud account")))
+    }
 ) {
     var showAccounts by remember { mutableStateOf(false) }
     var showTypes by remember { mutableStateOf(false) }
@@ -168,13 +173,13 @@ internal fun App(
             }.onFailure { failure ->
                 updateTabSearch(tabIndex) {
                     it.copy(results = emptyList(), loading = false,
-                        error = failure.message ?: tr("Không thể tìm kiếm trên Drive."))
+                        error = failure.message ?: tr("Can't search Drive."))
                 }
             }
         }
     }
     val tabs = listOf(
-        Tab(tr("Tệp"), Icons.Outlined.Folder), Tab(tr("Chia sẻ"), Icons.Outlined.People)
+        Tab(tr("Files"), Icons.Outlined.Folder), Tab(tr("Share"), Icons.Outlined.People)
     )
     val tabPagerState = rememberPagerState(
         initialPage = selected.coerceIn(0, tabs.lastIndex),
@@ -247,7 +252,7 @@ internal fun App(
         systemFilesSearching = false
     }
     BackHandler(
-        enabled = !viewerExpanded && selected == 3 && !showFabMenu && !drawerState.isOpen && !showSettings && !showSystemFiles &&
+        enabled = !viewerExpanded && selected in setOf(3, 4) && !showFabMenu && !drawerState.isOpen && !showSettings && !showSystemFiles &&
             !showAccounts && !showTypes && !addingS3
     ) { select(0) }
     BackHandler(enabled = !viewerExpanded && model.path.isNotEmpty() && !showSettings && !showSystemFiles && !showAccounts && !showTypes && !addingS3 && !drawerState.isOpen) {
@@ -339,7 +344,7 @@ internal fun App(
                                     TextField(
                                         value = systemFilesQuery,
                                         onValueChange = { systemFilesQuery = it },
-                                        placeholder = { Text(tr("Tìm trong thư mục")) },
+                                        placeholder = { Text(tr("Search this folder")) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = TextFieldDefaults.colors(
@@ -351,8 +356,8 @@ internal fun App(
                                     )
                                 } else {
                                     Text(
-                                        if (systemFilesDirectory == systemFilesRoot) tr("Tệp Hệ Thống")
-                                        else File(systemFilesDirectory).name.ifBlank { tr("Tệp Hệ Thống") },
+                                        if (systemFilesDirectory == systemFilesRoot) tr("System Files")
+                                        else File(systemFilesDirectory).name.ifBlank { tr("System Files") },
                                         style = MaterialTheme.typography.headlineSmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -361,8 +366,13 @@ internal fun App(
                             },
                             navigationIcon = {
                                 if (systemFilesDirectory == systemFilesRoot) {
-                                    IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
-                                        Icon(Icons.Outlined.Menu, tr("Mở menu"))
+                                    IconButton(onClick = {
+                                        systemFilesQuery = ""
+                                        systemFilesSearching = false
+                                        showSystemFiles = false
+                                        select(0)
+                                    }) {
+                                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
                                     }
                                 } else {
                                     IconButton(onClick = {
@@ -370,7 +380,7 @@ internal fun App(
                                         systemFilesSearching = false
                                         systemFilesDirectory = File(systemFilesDirectory).parent ?: systemFilesRoot
                                     }) {
-                                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Quay lại"))
+                                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
                                     }
                                 }
                             },
@@ -380,14 +390,14 @@ internal fun App(
                                         systemFilesQuery = ""
                                         systemFilesSearching = false
                                     }) {
-                                        Icon(Icons.Outlined.Close, tr("Đóng tìm kiếm"))
+                                        Icon(Icons.Outlined.Close, tr("Close search"))
                                     }
                                 } else {
                                     IconButton(onClick = { systemFilesSearching = true }) {
-                                        Icon(Icons.Outlined.Search, tr("Tìm kiếm"))
+                                        Icon(Icons.Outlined.Search, tr("Search"))
                                     }
                                     IconButton(onClick = { systemFilesRevision++ }) {
-                                        Icon(Icons.Outlined.Refresh, tr("Làm mới"))
+                                        Icon(Icons.Outlined.Refresh, tr("Refresh"))
                                     }
                                 }
                             },
@@ -395,11 +405,11 @@ internal fun App(
                         )
                         !appViewerExpanded && showSettings -> TopAppBar(
                             title = {
-                                Text(tr("Cài đặt"), style = MaterialTheme.typography.headlineSmall)
+                                Text(tr("Settings"), style = MaterialTheme.typography.headlineSmall)
                             },
                             navigationIcon = {
                                 IconButton(onClick = { showSettings = false }) {
-                                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Quay lại"))
+                                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -408,7 +418,7 @@ internal fun App(
                             title = {
                                 Text(when {
                                     appViewerExpanded -> viewer?.file?.name.orEmpty()
-                                    selected == 3 -> tr("Thùng rác")
+                                    selected == 3 -> tr("Trash")
                                     selected == 4 -> "Google Photos"
                                     else -> "ManyDrive"
                                 }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -419,10 +429,13 @@ internal fun App(
                                         if (viewer?.let { isMediaPreview(it.file) } == true) minimizeViewer() else closeViewer()
                                     }) {
                                         Icon(Icons.AutoMirrored.Outlined.ArrowBack,
-                                            if (viewer?.let { isMediaPreview(it.file) } == true) tr("Thu nhỏ trình phát") else tr("Đóng trình xem"))
+                                            if (viewer?.let { isMediaPreview(it.file) } == true) tr("Minimize player") else tr("Close viewer"))
+                                    }
+                                    selected in setOf(3, 4) -> IconButton(onClick = { select(0) }) {
+                                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
                                     }
                                     else -> IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
-                                        Icon(Icons.Outlined.Menu, tr("Mở menu"))
+                                        Icon(Icons.Outlined.Menu, tr("Open menu"))
                                     }
                                 }
                             },
@@ -450,7 +463,7 @@ internal fun App(
                                 miniBounds = it.boundsInRoot()
                             })
                         }
-                        if (!showSettings) NavigationBar {
+                        if (!showSettings && !showSystemFiles && selected !in setOf(3, 4)) NavigationBar {
                             tabs.forEachIndexed { index, item ->
                                 NavigationBarItem(
                                     selected = !showSystemFiles && selected in tabs.indices && index == tabPagerState.currentPage,
@@ -462,7 +475,7 @@ internal fun App(
                     }
                 },
                 floatingActionButton = {
-                    if (!appViewerExpanded && !showSettings && !showSystemFiles && selected != 4) {
+                    if (!appViewerExpanded && !showSettings && !showSystemFiles && selected !in setOf(3, 4)) {
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -474,7 +487,7 @@ internal fun App(
                                         upload()
                                     },
                                     icon = { Icon(Icons.Outlined.UploadFile, null) },
-                                    text = { Text(tr("Tải lên")) },
+                                    text = { Text(tr("Upload")) },
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -484,7 +497,7 @@ internal fun App(
                                         uploadFolder()
                                     },
                                     icon = { Icon(Icons.Outlined.DriveFolderUpload, null) },
-                                    text = { Text(tr("Tải thư mục")) },
+                                    text = { Text(tr("Upload folder")) },
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -495,7 +508,7 @@ internal fun App(
                                         showCreateFolderDialog = true
                                     },
                                     icon = { Icon(Icons.Outlined.CreateNewFolder, null) },
-                                    text = { Text(tr("Thư mục")) },
+                                    text = { Text(tr("Folder")) },
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -509,7 +522,7 @@ internal fun App(
                             ) {
                                 Icon(
                                     if (showFabMenu) Icons.Outlined.Close else Icons.Outlined.Add,
-                                    if (showFabMenu) tr("Đóng menu tạo mới") else tr("Tạo mới")
+                                    if (showFabMenu) tr("Close create menu") else tr("Create new")
                                 )
                             }
                         }
@@ -584,10 +597,14 @@ internal fun App(
                                             systemFilesQuery = ""
                                             systemFilesSearching = false
                                             showSystemFiles = false
+                                            select(0)
                                         },
                                         openFile = openLocalFile,
                                         uploadLocal = uploadLocalFile,
                                         cloudDestination = active?.let { it.title + " / " + model.path.joinToString(" / ") { folder -> folder.name } },
+                                        cloudAccount = active,
+                                        loadCloudFolders = fileActions.loadFolders,
+                                        transferLocalToCloud = transferLocalToCloud,
                                         handleBack = page == destination && !viewerExpanded && !systemFilesSearching &&
                                             !drawerState.isOpen && !showAccounts && !showTypes && !addingS3
                                     )
@@ -622,32 +639,50 @@ internal fun App(
                                             }
                                         } else {
                                             val globalSearch = pageSearch.results != null && pageSearch.query.isNotBlank()
-                                            FileBrowserPage(
-                                                model = pageModel,
-                                                padding = PaddingValues(0.dp),
-                                                account = active,
-                                                shared = page == 1,
-                                                query = pageSearch.query,
-                                                searchResults = pageSearch.results,
-                                                searchLoading = pageSearch.loading,
-                                                searchError = pageSearch.error,
-                                                authorize = if (page == selected) authorize else ({}),
-                                                openFolder = { file ->
-                                                    if (page == selected) {
-                                                        tabSearchStates[page] = BrowserTabSearchState()
-                                                        if (globalSearch) openSearchFolder(file) else openFolder(file)
-                                                    }
-                                                },
-                                                openFile = { file, queue -> if (page == selected) openFile(file, queue) },
-                                                actions = fileActions.copy(
-                                                    trash = if (page == 0) fileActions.trash else null,
-                                                    trashMany = if (page == 0) fileActions.trashMany else null
+                                            val folderKey = pageModel.path.joinToString(separator = "|") { folder ->
+                                                "${folder.id.length}:${folder.id}"
+                                            }
+                                            FolderZoomTransition(
+                                                key = folderKey,
+                                                depth = pageModel.path.size,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                FileBrowserPage(
+                                                    model = pageModel,
+                                                    padding = PaddingValues(0.dp),
+                                                    account = active,
+                                                    shared = page == 1,
+                                                    query = pageSearch.query,
+                                                    searchResults = pageSearch.results,
+                                                    searchLoading = pageSearch.loading,
+                                                    searchError = pageSearch.error,
+                                                    authorize = if (page == selected) authorize else ({}),
+                                                    openFolder = { file ->
+                                                        if (page == selected) {
+                                                            tabSearchStates[page] = BrowserTabSearchState()
+                                                            if (globalSearch) openSearchFolder(file) else openFolder(file)
+                                                        }
+                                                    },
+                                                    openFile = { file, queue -> if (page == selected) openFile(file, queue) },
+                                                    actions = fileActions.copy(
+                                                        localRootPath = systemFilesRoot,
+                                                        trash = if (page == 0) fileActions.trash else null,
+                                                        trashMany = if (page == 0) fileActions.trashMany else null
+                                                    )
                                                 )
-                                            )
+                                            }
                                         }
                                     }
                                 }
-                                MainDestination.PHOTOS -> GooglePhotosPage(model, padding, reload, openFile)
+                                MainDestination.PHOTOS -> UserRefreshBox(
+                                    loading = model.loading,
+                                    enabled = page == destination && !accounts.busy,
+                                    refreshKey = active?.key to "photos",
+                                    onRefresh = reload,
+                                    modifier = Modifier.fillMaxSize().padding(padding)
+                                ) {
+                                    GooglePhotosPage(model, PaddingValues(0.dp), openFile)
+                                }
                                 MainDestination.TRASH -> UserRefreshBox(
                                     loading = model.loading,
                                     enabled = page == destination && !accounts.busy,
@@ -655,7 +690,12 @@ internal fun App(
                                     onRefresh = reload,
                                     modifier = Modifier.fillMaxSize().padding(padding)
                                 ) {
-                                    TrashPage(model, PaddingValues(0.dp), restoreFile)
+                                    TrashPage(
+                                        model = model,
+                                        padding = PaddingValues(0.dp),
+                                        restore = restoreTrashFiles,
+                                        deletePermanently = deleteTrashFiles
+                                    )
                                 }
                             }
                         }
@@ -709,12 +749,12 @@ internal fun App(
 
     if (showCreateFolderDialog) AlertDialog(
         onDismissRequest = { showCreateFolderDialog = false },
-        title = { Text(tr("Thư mục mới")) },
+        title = { Text(tr("New folder")) },
         text = {
             OutlinedTextField(
                 value = newFolderName,
                 onValueChange = { newFolderName = it },
-                label = { Text(tr("Tên thư mục")) },
+                label = { Text(tr("Folder name")) },
                 singleLine = true
             )
         },
@@ -727,10 +767,10 @@ internal fun App(
                     newFolderName = ""
                     createFolder(name)
                 }
-            ) { Text(tr("Tạo")) }
+            ) { Text(tr("Create")) }
         },
         dismissButton = {
-            TextButton(onClick = { showCreateFolderDialog = false }) { Text(tr("Hủy")) }
+            TextButton(onClick = { showCreateFolderDialog = false }) { Text(tr("Cancel")) }
         }
     )
 
@@ -751,29 +791,29 @@ internal fun App(
     )
     if (showTypes) AlertDialog(
         onDismissRequest = { showTypes = false },
-        title = { Text(tr("Thêm tài khoản")) },
+        title = { Text(tr("Add account")) },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                AccountTypeButton(Icons.Outlined.AccountCircle, "Google", tr("Tài khoản trên thiết bị")) {
+                AccountTypeButton(Icons.Outlined.AccountCircle, "Google", tr("Account on this device")) {
                     showTypes = false; showAccounts = true; signIn()
                 }
-                AccountTypeButton(Icons.Outlined.Cloud, "S3", tr("Nhập thông tin kết nối")) {
+                AccountTypeButton(Icons.Outlined.Cloud, "S3", tr("Enter connection details")) {
                     showTypes = false; addingS3 = true
                 }
-                AccountTypeButton(Icons.Outlined.Key, "Service Account", tr("Nhập file JSON")) {
+                AccountTypeButton(Icons.Outlined.Key, "Service Account", tr("Import a JSON file")) {
                     showTypes = false; showAccounts = true; importService()
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { showTypes = false }) { Text(tr("Hủy")) } }
+        confirmButton = { TextButton(onClick = { showTypes = false }) { Text(tr("Cancel")) } }
     )
     if (addingS3) S3AccountDialog(onDismiss = { addingS3 = false }, loading = accounts.busy,
         message = accounts.message, connect = connectS3)
     removing?.let { entry ->
-        AlertDialog(onDismissRequest = { removing = null }, title = { Text(tr("Đăng xuất khỏi ${entry.title}?")) },
-            text = { Text(tr("Tài khoản sẽ được gỡ khỏi danh sách đã lưu trong ứng dụng. Tệp trên đám mây vẫn được giữ nguyên.")) },
-            confirmButton = { TextButton(onClick = { removeAccount(entry); removing = null }) { Text(tr("Đăng xuất")) } },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text(tr("Hủy")) } })
+        AlertDialog(onDismissRequest = { removing = null }, title = { Text(tr("Sign out of ${entry.title}?")) },
+            text = { Text(tr("The account will be removed from the app. Your cloud files will not be changed.")) },
+            confirmButton = { TextButton(onClick = { removeAccount(entry); removing = null }) { Text(tr("Sign out")) } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text(tr("Cancel")) } })
     }
 }
 
@@ -825,16 +865,16 @@ private fun StoragePage(
             Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("Tệp của bạn"), style = MaterialTheme.typography.titleLarge)
-                    Text(tr("Kết nối Google, S3 hoặc Service Account để xem tệp."))
-                    FilledTonalButton(onClick = add) { Text(tr("Thêm tài khoản")) }
-                    TextButton(onClick = accounts) { Text(tr("Tài khoản đã lưu")) }
+                    Text(tr("Your files"), style = MaterialTheme.typography.titleLarge)
+                    Text(tr("Connect Google, S3, or a Service Account to view files."))
+                    FilledTonalButton(onClick = add) { Text(tr("Add account")) }
+                    TextButton(onClick = accounts) { Text(tr("Saved accounts")) }
                 }
             }
         }
-        if (shared) item { Text(tr("Chia sẻ với tôi"), style = MaterialTheme.typography.titleMedium) }
+        if (shared) item { Text(tr("Shared with me"), style = MaterialTheme.typography.titleMedium) }
         model.message?.let { item { CopyableError(it, color = MaterialTheme.colorScheme.error) } }
-        if (account != null && !model.loading && model.message == null && model.files.isEmpty()) item { Text(tr("Chưa có tệp để hiển thị.")) }
+        if (account != null && !model.loading && model.message == null && model.files.isEmpty()) item { Text(tr("No files to display.")) }
         items(model.files, key = { it.id }) { FileRow(it, onOpen = openFolder, onPreview = openFile, enabled = !model.loading) }
     }
 }
@@ -866,29 +906,29 @@ private fun DrivePage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text(model.user?.let { "$it’s Drive" } ?: tr("Lưu trữ cùng Google Drive"),
+                    Text(model.user?.let { "$it’s Drive" } ?: tr("Storage with Google Drive"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
-                    Text(if (model.user == null) tr("Thêm tài khoản để quản lý tệp.") else tr("Bấm biểu tượng tài khoản để chuyển hoặc thêm tài khoản."))
+                    Text(if (model.user == null) tr("Add an account to manage files.") else tr("Tap the account icon to switch or add an account."))
                     Spacer(Modifier.height(12.dp))
-                    if (model.user == null) FilledTonalButton(onClick = signIn) { Text(tr("Thêm tài khoản")) }
-                    else if (model.token == null) FilledTonalButton(onClick = authorize) { Text(tr("Cho phép Drive")) }
+                    if (model.user == null) FilledTonalButton(onClick = signIn) { Text(tr("Add account")) }
+                    else if (model.token == null) FilledTonalButton(onClick = authorize) { Text(tr("Allow Drive access")) }
                     else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = upload) {
                                 Icon(
                                     Icons.Outlined.UploadFile,
                                     null
-                                ); Spacer(Modifier.width(6.dp)); Text(tr("Tải tệp lên"))
+                                ); Spacer(Modifier.width(6.dp)); Text(tr("Upload files"))
                             }
-                            FilledTonalButton(onClick = signOut) { Text(tr("Đăng xuất")) }
+                            FilledTonalButton(onClick = signOut) { Text(tr("Sign out")) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
                             OutlinedTextField(
                                 folderName,
                                 { folderName = it },
-                                label = { Text(tr("Thư mục mới")) },
+                                label = { Text(tr("New folder")) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
@@ -896,14 +936,14 @@ private fun DrivePage(
                                 onClick = { createFolder(folderName); folderName = "" },
                                 enabled = folderName.isNotBlank(),
                                 modifier = Modifier.padding(start = 8.dp)
-                            ) { Text(tr("Tạo")) }
+                            ) { Text(tr("Create")) }
                         }
                     }
                 }
             }
         }
         model.message?.let { item { CopyableError(it, color = MaterialTheme.colorScheme.error) } }
-        if (!model.loading && model.token != null && model.files.isEmpty()) item { Text(tr("Không có tệp trong vị trí này.")) }
+        if (!model.loading && model.token != null && model.files.isEmpty()) item { Text(tr("There are no files in this location.")) }
         items(model.files, key = { it.id }) { FileRow(it, trash, openFolder, !model.loading, onPreview = openFile) }
     }
 }
@@ -912,17 +952,100 @@ private fun DrivePage(
 private fun TrashPage(
     model: Model,
     padding: PaddingValues,
-    restore: (DriveFile) -> Unit
+    restore: (List<DriveFile>) -> Unit,
+    deletePermanently: (List<DriveFile>) -> Unit
 ) {
-    LazyColumn(
-        Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        model.message?.let { item { CopyableError(it, color = MaterialTheme.colorScheme.error) } }
-        if (!model.loading && model.message == null && model.files.isEmpty()) item { Text(tr("Thùng rác đang trống.")) }
-        items(model.files, key = { it.id }) { file ->
-            FileRow(file = file, enabled = false, onRestore = restore)
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val selectedFiles = remember(model.files, selectedIds) {
+        model.files.filter { it.id in selectedIds }
+    }
+    val selectionMode = selectedIds.isNotEmpty()
+
+    BackHandler(enabled = selectionMode) { selectedIds = emptySet() }
+
+    Column(Modifier.fillMaxSize().padding(padding)) {
+        if (selectionMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { selectedIds = emptySet() }) {
+                        Icon(Icons.Outlined.Close, tr("Clear selection"))
+                    }
+                    Text(
+                        tr("${selectedIds.size} selected"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        enabled = selectedIds.size < model.files.size,
+                        onClick = { selectedIds = model.files.mapTo(linkedSetOf()) { it.id } }
+                    ) {
+                        Icon(Icons.Outlined.SelectAll, tr("Select all"))
+                    }
+                    IconButton(
+                        enabled = !model.loading && selectedFiles.isNotEmpty(),
+                        onClick = {
+                            val files = selectedFiles
+                            selectedIds = emptySet()
+                            restore(files)
+                        }
+                    ) {
+                        Icon(Icons.Outlined.Restore, tr("Restore"))
+                    }
+                    IconButton(
+                        enabled = !model.loading && selectedFiles.isNotEmpty(),
+                        onClick = {
+                            val files = selectedFiles
+                            selectedIds = emptySet()
+                            deletePermanently(files)
+                        }
+                    ) {
+                        Icon(Icons.Outlined.DeleteForever, tr("Delete permanently"))
+                    }
+                }
+            }
+        }
+
+        model.message?.let {
+            CopyableError(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
+        }
+        if (!model.loading && model.message == null && model.files.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(tr("Trash is empty."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(model.files, key = { it.id }) { file ->
+                    FileListRow(
+                        file = file,
+                        shared = false,
+                        onOpen = {},
+                        onPreview = {},
+                        selectionMode = selectionMode,
+                        selected = file.id in selectedIds,
+                        onToggleSelection = { selected ->
+                            selectedIds = if (selected.id in selectedIds) selectedIds - selected.id else selectedIds + selected.id
+                        },
+                        onLongSelect = { selected -> selectedIds = selectedIds + selected.id },
+                        onMenu = null
+                    )
+                }
+            }
         }
     }
 }
@@ -946,19 +1069,19 @@ private fun S3AccountDialog(
     }.getOrDefault(false)
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text(tr("Thêm tài khoản S3")) },
+        title = { Text(tr("Add S3 account")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 message?.let { CopyableError(it, color = MaterialTheme.colorScheme.error) }
                 if (loading) Loading()
-                OutlinedTextField(name, { name = it }, label = { Text(tr("Tên tài khoản")) }, enabled = !loading, singleLine = true)
-                OutlinedTextField(endpoint, { endpoint = it }, label = { Text("Endpoint HTTPS") }, enabled = !loading, singleLine = true)
-                OutlinedTextField(bucket, { bucket = it }, label = { Text("Bucket") }, enabled = !loading, singleLine = true)
-                OutlinedTextField(region, { region = it }, label = { Text("Region") }, enabled = !loading, singleLine = true)
-                OutlinedTextField(key, { key = it }, label = { Text("Access key") }, enabled = !loading, singleLine = true,
+                OutlinedTextField(name, { name = it }, label = { Text(tr("Account name")) }, enabled = !loading, singleLine = true)
+                OutlinedTextField(endpoint, { endpoint = it }, label = { Text(tr("HTTPS endpoint")) }, enabled = !loading, singleLine = true)
+                OutlinedTextField(bucket, { bucket = it }, label = { Text(tr("Bucket")) }, enabled = !loading, singleLine = true)
+                OutlinedTextField(region, { region = it }, label = { Text(tr("Region")) }, enabled = !loading, singleLine = true)
+                OutlinedTextField(key, { key = it }, label = { Text(tr("Access key")) }, enabled = !loading, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation())
-                OutlinedTextField(secret, { secret = it }, label = { Text("Secret key") }, enabled = !loading, singleLine = true,
+                OutlinedTextField(secret, { secret = it }, label = { Text(tr("Secret key")) }, enabled = !loading, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation())
             }
@@ -967,16 +1090,16 @@ private fun S3AccountDialog(
             TextButton(
                 enabled = !loading && name.isNotBlank() && validEndpoint && key.isNotBlank() && secret.isNotBlank() && bucket.isNotBlank(),
                 onClick = { connect(name.trim(), S3Config(endpoint.trim(), key.trim(), secret, bucket.trim(), region.trim().ifBlank { "us-east-1" })) }
-            ) { Text(tr("Kết nối và lưu")) }
+            ) { Text(tr("Connect and save")) }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !loading) { Text(tr("Hủy")) } }
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !loading) { Text(tr("Cancel")) } }
     )
 }
 
 @Composable
 private fun FileRow(file: DriveFile, onDelete: ((DriveFile) -> Unit)? = null,
     onOpen: (DriveFile) -> Unit = {}, enabled: Boolean = true,
-    onRestore: ((DriveFile) -> Unit)? = null, onPreview: (DriveFile) -> Unit = {}) =
+    onPreview: (DriveFile) -> Unit = {}) =
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled) {
         if (file.isFolder) onOpen(file) else onPreview(file)
     }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -993,8 +1116,7 @@ private fun FileRow(file: DriveFile, onDelete: ((DriveFile) -> Unit)? = null,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         }
-        onDelete?.let { IconButton(onClick = { it(file) }) { Icon(Icons.Outlined.Delete, tr("Chuyển vào thùng rác")) } }
-        onRestore?.let { IconButton(onClick = { it(file) }) { Icon(Icons.Outlined.Restore, tr("Khôi phục")) } }
+        onDelete?.let { IconButton(onClick = { it(file) }) { Icon(Icons.Outlined.Delete, tr("Move to trash")) } }
     }
 
 @Composable
@@ -1002,24 +1124,24 @@ private fun Loading() =
     Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
 // Keep previews alongside the private UI components so they need no Activity or services.
-@Preview(name = "Sáng", group = "ManyDrive", showBackground = true, widthDp = 400, heightDp = 850)
-@Preview(name = "Tối", group = "ManyDrive", showBackground = true, widthDp = 400, heightDp = 850,
+@Preview(name = "Light", group = "ManyDrive", showBackground = true, widthDp = 400, heightDp = 850)
+@Preview(name = "Dark", group = "ManyDrive", showBackground = true, widthDp = 400, heightDp = 850,
     uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.BINARY)
 private annotation class ScreenPreviews
 
-@Preview(name = "Sáng", group = "Components", showBackground = true, widthDp = 400)
-@Preview(name = "Tối", group = "Components", showBackground = true, widthDp = 400,
+@Preview(name = "Light", group = "Components", showBackground = true, widthDp = 400)
+@Preview(name = "Dark", group = "Components", showBackground = true, widthDp = 400,
     uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.BINARY)
 private annotation class ComponentPreviews
 
 private val previewFiles = listOf(
-    DriveFile("folder", tr("Tài liệu công việc"), "application/vnd.google-apps.folder", null),
-    DriveFile("pdf", tr("Kế hoạch dự án.pdf"), "application/pdf", "2026-09-08T09:30:00.000Z"),
-    DriveFile("image", tr("Ảnh chuyến đi cuối tuần.jpg"), "image/jpeg", "2026-09-07T14:15:00.000Z")
+    DriveFile("folder", tr("Work documents"), "application/vnd.google-apps.folder", null),
+    DriveFile("pdf", tr("Project plan.pdf"), "application/pdf", "2026-09-08T09:30:00.000Z"),
+    DriveFile("image", tr("Weekend trip photo.jpg"), "image/jpeg", "2026-09-07T14:15:00.000Z")
 )
 
 private val previewModel = Model(
@@ -1047,7 +1169,7 @@ private fun AppPreview() {
             createFolder = {}, trash = {},
             accounts = AccountUi(
                 entries = listOf(AccountEntry(AccountType.GOOGLE, "minhanh@example.com", "Minh Anh"),
-                    AccountEntry(AccountType.S3, "preview-s3", tr("Kho công việc"), "documents"),
+                    AccountEntry(AccountType.S3, "preview-s3", tr("Work warehouse"), "documents"),
                     AccountEntry(AccountType.SERVICE, "drive@example.iam.gserviceaccount.com", "drive@example.iam.gserviceaccount.com")),
                 active = AccountEntry(AccountType.GOOGLE, "minhanh@example.com", "Minh Anh")
             )
@@ -1088,7 +1210,7 @@ private fun DriveLoadingPreview() = DrivePagePreviewContent(previewModel.copy(lo
 @ScreenPreviews
 @Composable
 private fun DriveErrorPreview() = DrivePagePreviewContent(
-    previewModel.copy(message = tr("Không thể tải danh sách tệp. Vui lòng thử lại."), files = emptyList())
+    previewModel.copy(message = tr("Unable to load file list. Please try again."), files = emptyList())
 )
 
 @ScreenPreviews
@@ -1096,7 +1218,7 @@ private fun DriveErrorPreview() = DrivePagePreviewContent(
 private fun S3PagePreview() {
     PreviewSurface {
         StoragePage(Model(files = previewFiles), PaddingValues(0.dp),
-            AccountEntry(AccountType.S3, "s3-preview", tr("Kho công việc"), "documents"), {}, {}, {})
+            AccountEntry(AccountType.S3, "s3-preview", tr("Work warehouse"), "documents"), {}, {}, {})
     }
 }
 
@@ -1149,9 +1271,9 @@ private fun S3AddAccountPreview() {
 private fun AccountTypeButtonsPreview() {
     PreviewSurface {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            AccountTypeButton(Icons.Outlined.AccountCircle, "Google", tr("Tài khoản trên thiết bị")) {}
-            AccountTypeButton(Icons.Outlined.Cloud, "S3", tr("Nhập thông tin kết nối")) {}
-            AccountTypeButton(Icons.Outlined.Key, "Service Account", tr("Nhập file JSON")) {}
+            AccountTypeButton(Icons.Outlined.AccountCircle, "Google", tr("Account on this device")) {}
+            AccountTypeButton(Icons.Outlined.Cloud, "S3", tr("Enter connection details")) {}
+            AccountTypeButton(Icons.Outlined.Key, "Service Account", tr("Import a JSON file")) {}
         }
     }
 }

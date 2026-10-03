@@ -53,7 +53,7 @@ object PhotosApi {
 
     internal fun contentUrl(item: JSONObject, video: Boolean): String {
         if (video) check(item.optJSONObject("mediaMetadata")?.optJSONObject("video")?.optString("status") == "READY") {
-            tr("Video Google Photos chưa sẵn sàng. Hãy thử lại sau.")
+            tr("This Google Photos video is not ready yet. Please try again later.")
         }
         return item.getString("baseUrl") + if (video) "=dv" else "=w4096-h4096"
     }
@@ -81,7 +81,7 @@ object PhotosApi {
         request.headers.set("X-Goog-Upload-Content-Type", mimeType)
         val response = request.execute()
         val uploadToken = try { response.parseAsString().trim() } finally { response.disconnect() }
-        require(uploadToken.isNotEmpty()) { tr("Google Photos không trả về upload token.") }
+        require(uploadToken.isNotEmpty()) { tr("Google Photos does not return upload token.") }
         val body = JSONObject().put("newMediaItems", org.json.JSONArray().put(
             JSONObject().put("simpleMediaItem", JSONObject().put("uploadToken", uploadToken).put("fileName", filename))))
         albumId?.let { body.put("albumId", it) }
@@ -89,7 +89,7 @@ object PhotosApi {
             "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate", body.toString().toByteArray()).decodeToString())
             .getJSONArray("newMediaItemResults").getJSONObject(0)
         check(result.optJSONObject("status")?.optInt("code", 0) in listOf(null, 0) && result.has("mediaItem")) {
-            result.optJSONObject("status")?.optString("message") ?: tr("Không thể tạo mục Google Photos.")
+            result.optJSONObject("status")?.optString("message") ?: tr("Cannot create Google Photos item.")
         }
     }
 }

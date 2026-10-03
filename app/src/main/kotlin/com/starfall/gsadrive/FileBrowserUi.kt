@@ -37,6 +37,7 @@ import com.starfall.gsadrive.data.DriveFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -87,12 +88,12 @@ internal fun DriveNavigationDrawer(
 
             DriveDrawerItem(
                 icon = Icons.Outlined.AccountCircle,
-                label = tr("Tài khoản"),
+                label = tr("Account"),
                 onClick = onAccounts
             )
             DriveDrawerItem(
                 icon = Icons.Outlined.Storage,
-                label = tr("Tệp Hệ Thống"),
+                label = tr("System Files"),
                 selected = systemFilesSelected,
                 onClick = onSystemFiles
             )
@@ -105,14 +106,14 @@ internal fun DriveNavigationDrawer(
             )
             DriveDrawerItem(
                 icon = Icons.Outlined.Delete,
-                label = tr("Thùng rác"),
+                label = tr("Trash"),
                 selected = trashSelected,
                 enabled = isTabEnabled(account?.type, 3),
                 onClick = onTrash
             )
             DriveDrawerItem(
                 icon = Icons.Outlined.Settings,
-                label = tr("Cài đặt"),
+                label = tr("Settings"),
                 selected = settingsSelected,
                 onClick = onSettings
             )
@@ -173,7 +174,7 @@ private fun DriveDrawerItem(
 }
 
 private enum class BrowserSort(val label: String) {
-    NAME(tr("Tên")), MODIFIED(tr("Ngày sửa đổi")), SHARED(tr("Ngày chia sẻ"))
+    NAME(tr("Name")), MODIFIED(tr("Date modified")), SHARED(tr("Date shared"))
 }
 
 @Composable
@@ -191,17 +192,17 @@ internal fun DriveRootTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(onClick = onMenu) { Icon(Icons.Outlined.Menu, tr("Mở menu")) }
+                IconButton(onClick = onMenu) { Icon(Icons.Outlined.Menu, tr("Open menu")) }
                 TextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    placeholder = { Text(tr("Tìm trong Drive")) },
+                    placeholder = { Text(tr("Search Drive")) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(32.dp),
                     leadingIcon = if (query.isNotBlank()) ({ Icon(Icons.Outlined.Search, null) }) else null,
                     trailingIcon = if (query.isNotBlank()) ({
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Outlined.Close, tr("Xóa tìm kiếm")) }
+                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Outlined.Close, tr("Clear search")) }
                     }) else null,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -234,12 +235,12 @@ internal fun FolderBrowserTopBar(
                 .heightIn(min = 64.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Quay lại")) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back")) }
             if (searching) {
                 TextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    placeholder = { Text(tr("Tìm trong Drive")) },
+                    placeholder = { Text(tr("Search Drive")) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     colors = TextFieldDefaults.colors(
@@ -250,18 +251,18 @@ internal fun FolderBrowserTopBar(
                     )
                 )
                 IconButton(onClick = { onQueryChange(""); onSearchingChange(false) }) {
-                    Icon(Icons.Outlined.Close, tr("Đóng tìm kiếm"))
+                    Icon(Icons.Outlined.Close, tr("Close search"))
                 }
             } else {
                 Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                IconButton(onClick = { onSearchingChange(true) }) { Icon(Icons.Outlined.Search, tr("Tìm kiếm")) }
+                IconButton(onClick = { onSearchingChange(true) }) { Icon(Icons.Outlined.Search, tr("Search")) }
                 Box {
-                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, tr("Tùy chọn")) }
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, tr("Options")) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(text = { Text(tr("Làm mới")) }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) },
+                        DropdownMenuItem(text = { Text(tr("Refresh")) }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) },
                             onClick = { menuOpen = false; onRefresh() })
-                        DropdownMenuItem(text = { Text(tr("Tài khoản")) }, leadingIcon = { Icon(Icons.Outlined.AccountCircle, null) },
+                        DropdownMenuItem(text = { Text(tr("Account")) }, leadingIcon = { Icon(Icons.Outlined.AccountCircle, null) },
                             onClick = { menuOpen = false; onAccounts() })
                     }
                 }
@@ -279,7 +280,7 @@ internal fun AccountAvatar(account: AccountEntry?, onClick: () -> Unit, size: an
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         if (avatar != null) {
-            Image(bitmap = avatar, contentDescription = tr("Tài khoản"), modifier = Modifier.fillMaxSize().clip(CircleShape),
+            Image(bitmap = avatar, contentDescription = tr("Account"), modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop)
         } else {
             Box(contentAlignment = Alignment.Center) {
@@ -393,10 +394,10 @@ internal fun FileBrowserPage(
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selectionMode) {
                     IconButton(onClick = { selectedIds = emptyList() }) {
-                        Icon(Icons.Outlined.Close, tr("Bỏ chọn tất cả"))
+                        Icon(Icons.Outlined.Close, tr("Clear selection"))
                     }
                     Text(
-                        tr("${selectedIds.size} đã chọn"),
+                        tr("${selectedIds.size} selected"),
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
@@ -406,7 +407,7 @@ internal fun FileBrowserPage(
                         enabled = selectedSet.size < visible.size,
                         onClick = { selectedIds = visible.map { it.id } }
                     ) {
-                        Icon(Icons.Outlined.SelectAll, tr("Chọn tất cả"))
+                        Icon(Icons.Outlined.SelectAll, tr("Select all"))
                     }
                 } else {
                     Text(
@@ -417,19 +418,19 @@ internal fun FileBrowserPage(
                     )
                     Box {
                         val directionDescription = when (sort) {
-                            BrowserSort.NAME -> if (ascending) tr("A đến Z") else tr("Z đến A")
+                            BrowserSort.NAME -> if (ascending) tr("A to Z") else tr("Z to A")
                             BrowserSort.MODIFIED, BrowserSort.SHARED ->
-                                if (ascending) tr("Từ cũ đến mới") else tr("Từ mới đến cũ")
+                                if (ascending) tr("Oldest first") else tr("Newest first")
                         }
                         IconButton(onClick = { sortMenu = true }) {
                             Icon(
                                 if (ascending) Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward,
-                                tr("Sắp xếp: $directionDescription")
+                                tr("Sort: $directionDescription")
                             )
                         }
                         DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                             Text(
-                                tr("Sắp xếp theo"),
+                                tr("Sort by"),
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             )
@@ -449,9 +450,9 @@ internal fun FileBrowserPage(
                             }
                             HorizontalDivider()
                             val directionOptions = if (sort == BrowserSort.NAME) {
-                                listOf(false to tr("Z đến A"), true to tr("A đến Z"))
+                                listOf(false to tr("Z to A"), true to tr("A to Z"))
                             } else {
-                                listOf(false to tr("Từ mới đến cũ"), true to tr("Từ cũ đến mới"))
+                                listOf(false to tr("Newest first"), true to tr("Oldest first"))
                             }
                             directionOptions.forEach { (value, label) ->
                                 DropdownMenuItem(
@@ -476,11 +477,11 @@ internal fun FileBrowserPage(
                     Row {
                         IconButton(onClick = { grid = false }, colors = IconButtonDefaults.iconButtonColors(
                             containerColor = if (!grid) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)) {
-                            Icon(Icons.Outlined.ViewList, tr("Danh sách"))
+                            Icon(Icons.Outlined.ViewList, tr("List"))
                         }
                         IconButton(onClick = { grid = true }, colors = IconButtonDefaults.iconButtonColors(
                             containerColor = if (grid) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)) {
-                            Icon(Icons.Outlined.GridView, tr("Lưới"))
+                            Icon(Icons.Outlined.GridView, tr("Grid"))
                         }
                     }
                 }
@@ -498,13 +499,13 @@ internal fun FileBrowserPage(
         }
         if (account?.type == AccountType.GOOGLE && model.token == null && model.files.isEmpty()) {
             FilledTonalButton(onClick = authorize, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text(tr("Cho phép Drive"))
+                Text(tr("Allow Drive access"))
             }
         }
 
         if (showEmptyMessage && !model.loading && !searchLoading && model.message == null && searchError == null && visible.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (query.isBlank()) tr("Không có tệp trong vị trí này.") else tr("Không tìm thấy tệp phù hợp."),
+                Text(if (query.isBlank()) tr("There are no files in this location.") else tr("No matching files found."),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else if (grid) {
@@ -592,7 +593,7 @@ internal fun FileBrowserPage(
 }
 
 @Composable
-private fun FileListRow(
+internal fun FileListRow(
     file: DriveFile,
     shared: Boolean,
     onOpen: (DriveFile) -> Unit,
@@ -621,7 +622,7 @@ private fun FileListRow(
             if (selectionMode) {
                 Icon(
                     if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                    if (selected) tr("Đã chọn") else tr("Chưa chọn"),
+                    if (selected) tr("Selected") else tr("Not selected"),
                     tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(30.dp)
                 )
@@ -646,8 +647,8 @@ private fun FileListRow(
                 Text(file.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (shared) formatDriveDate(file.sharedWithMeTime ?: file.modifiedTime, tr("Được chia sẻ"))
-                        else formatDriveDate(file.modifiedTime, tr("Đã chỉnh sửa")),
+                        if (shared) formatDriveDate(file.sharedWithMeTime ?: file.modifiedTime, tr("Shared"))
+                        else formatDriveDate(file.modifiedTime, tr("Modified")),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -655,7 +656,7 @@ private fun FileListRow(
                     )
                 }
             }
-            if (onMenu != null) IconButton(onClick = { onMenu(file) }) { Icon(Icons.Outlined.MoreVert, tr("Tùy chọn")) }
+            if (onMenu != null) IconButton(onClick = { onMenu(file) }) { Icon(Icons.Outlined.MoreVert, tr("Options")) }
         }
     }
 }
@@ -707,7 +708,7 @@ private fun FileGridCard(
                 if (selectionMode) {
                     Icon(
                         if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                        if (selected) tr("Đã chọn") else tr("Chưa chọn"),
+                        if (selected) tr("Selected") else tr("Not selected"),
                         tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(28.dp)
                     )
@@ -722,7 +723,7 @@ private fun FileGridCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (onMenu != null) IconButton(onClick = { onMenu(file) }) { Icon(Icons.Outlined.MoreVert, tr("Tùy chọn")) }
+                if (onMenu != null) IconButton(onClick = { onMenu(file) }) { Icon(Icons.Outlined.MoreVert, tr("Options")) }
             }
             if (thumbnail != null && !file.isFolder) {
                 Box(
@@ -744,7 +745,7 @@ private fun FileGridCard(
                         ) {
                             Icon(
                                 Icons.Outlined.Group,
-                                contentDescription = tr("Tệp được chia sẻ"),
+                                contentDescription = tr("Shared file"),
                                 modifier = Modifier.padding(6.dp).size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -753,8 +754,8 @@ private fun FileGridCard(
                 }
             } else {
                 Text(
-                    if (shared) formatDriveDate(file.sharedWithMeTime ?: file.modifiedTime, tr("Được chia sẻ"))
-                    else formatDriveDate(file.modifiedTime, tr("Đã chỉnh sửa")),
+                    if (shared) formatDriveDate(file.sharedWithMeTime ?: file.modifiedTime, tr("Shared"))
+                    else formatDriveDate(file.modifiedTime, tr("Modified")),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -795,22 +796,20 @@ private fun formatDriveDate(value: String?, prefix: String): String {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)
             ?: SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)
     }.getOrNull() ?: return "$prefix ${value.substringBefore('T')}"
-    val now = Calendar.getInstance()
-    val date = Calendar.getInstance().apply { time = parsed }
-    val pattern = if (now.get(Calendar.YEAR) == date.get(Calendar.YEAR)) "d 'thg' M" else "d 'thg' M, yyyy"
-    return "$prefix ${SimpleDateFormat(pattern, Locale("vi", "VN")).format(parsed)}"
+    val formatted = DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(parsed)
+    return "$prefix $formatted"
 }
 
 private fun sharedSection(value: DriveFile): String {
-    val raw = value.sharedWithMeTime ?: value.modifiedTime ?: return tr("Cũ hơn")
+    val raw = value.sharedWithMeTime ?: value.modifiedTime ?: return tr("Older")
     val parsed = runCatching {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(raw)
-    }.getOrNull() ?: return tr("Cũ hơn")
+    }.getOrNull() ?: return tr("Older")
     val now = Calendar.getInstance()
     val date = Calendar.getInstance().apply { time = parsed }
-    if (now.get(Calendar.YEAR) == date.get(Calendar.YEAR) && now.get(Calendar.MONTH) == date.get(Calendar.MONTH)) return tr("Tháng này")
+    if (now.get(Calendar.YEAR) == date.get(Calendar.YEAR) && now.get(Calendar.MONTH) == date.get(Calendar.MONTH)) return tr("This month")
     val previousMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }
-    if (previousMonth.get(Calendar.YEAR) == date.get(Calendar.YEAR) && previousMonth.get(Calendar.MONTH) == date.get(Calendar.MONTH)) return tr("Tháng trước")
-    if (now.get(Calendar.YEAR) == date.get(Calendar.YEAR)) return tr("Đầu năm nay")
-    return tr("Cũ hơn")
+    if (previousMonth.get(Calendar.YEAR) == date.get(Calendar.YEAR) && previousMonth.get(Calendar.MONTH) == date.get(Calendar.MONTH)) return tr("Last month")
+    if (now.get(Calendar.YEAR) == date.get(Calendar.YEAR)) return tr("Earlier this year")
+    return tr("Older")
 }

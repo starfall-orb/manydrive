@@ -28,7 +28,7 @@ internal fun startLocalPlayback(
     sources: List<PlaybackSource>
 ) {
     val index = sources.indexOfFirst { it.file.id == selected.id }
-    check(index >= 0) { tr("Không tìm thấy media để phát.") }
+    check(index >= 0) { tr("No media found to play.") }
     val mediaId = sources[index].mediaId
     val position = if (player.currentMediaItem?.mediaId == mediaId) {
         player.currentPosition

@@ -58,9 +58,9 @@ fun SettingsPage(
     ) {
         Spacer(Modifier.height(20.dp))
 
-        SettingsSectionTitle(tr("Thông báo"))
+        SettingsSectionTitle(tr("Notifications"))
         SettingsRow(
-            title = tr("Cài đặt thông báo"),
+            title = tr("Notification settings"),
             onClick = {
                 val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -68,35 +68,35 @@ fun SettingsPage(
             }
         )
 
-        SettingsSectionTitle(tr("Giao diện"))
+        SettingsSectionTitle(tr("Appearance"))
         SettingsRow(
-            title = tr("Chọn giao diện"),
+            title = tr("Choose theme"),
             subtitle = when (mode) {
-                ThemeMode.SYSTEM -> tr("Chế độ mặc định của hệ thống")
-                ThemeMode.LIGHT -> tr("Sáng")
-                ThemeMode.DARK -> tr("Tối")
+                ThemeMode.SYSTEM -> tr("Use system default")
+                ThemeMode.LIGHT -> tr("Light")
+                ThemeMode.DARK -> tr("Dark")
             },
             onClick = { showThemeDialog = true }
         )
         SettingsSwitchRow(
             title = "Super Dark Mode",
-            subtitle = tr("Dùng nền đen thuần khi giao diện tối đang bật"),
+            subtitle = tr("Use a pure black background in dark mode"),
             checked = superDark,
             onCheckedChange = setSuperDark
         )
 
-        SettingsSectionTitle(tr("Tệp Hệ Thống"))
+        SettingsSectionTitle(tr("System Files"))
         SettingsSwitchRow(
-            title = tr("Hiển thị tệp ẩn"),
-            subtitle = tr("Hiển thị tệp và thư mục bắt đầu bằng dấu chấm trong Tệp Hệ Thống"),
+            title = tr("Show hidden files"),
+            subtitle = tr("Show files and folders beginning with a dot in System Files"),
             checked = showHiddenSystemFiles,
             onCheckedChange = setShowHiddenSystemFiles
         )
 
-        SettingsSectionTitle(tr("Bộ nhớ đệm của tài liệu"))
+        SettingsSectionTitle(tr("Document cache"))
         SettingsRow(
-            title = tr("Xóa bộ nhớ đệm"),
-            subtitle = tr("Xóa danh sách tệp và dữ liệu đã lưu trong bộ nhớ đệm"),
+            title = tr("Clear cache"),
+            subtitle = tr("Clear cached file lists and data"),
             onClick = clearCache
         )
 
@@ -106,7 +106,7 @@ fun SettingsPage(
     if (showThemeDialog) {
         AlertDialog(
             onDismissRequest = { showThemeDialog = false },
-            title = { Text(tr("Chọn giao diện")) },
+            title = { Text(tr("Choose theme")) },
             text = {
                 Column {
                     ThemeMode.entries.forEach { option ->
@@ -123,9 +123,9 @@ fun SettingsPage(
                             RadioButton(selected = mode == option, onClick = null)
                             Text(
                                 when (option) {
-                                    ThemeMode.SYSTEM -> tr("Mặc định hệ thống")
-                                    ThemeMode.LIGHT -> tr("Sáng")
-                                    ThemeMode.DARK -> tr("Tối")
+                                    ThemeMode.SYSTEM -> tr("System default")
+                                    ThemeMode.LIGHT -> tr("Light")
+                                    ThemeMode.DARK -> tr("Dark")
                                 },
                                 modifier = Modifier.padding(start = 12.dp)
                             )
@@ -134,7 +134,7 @@ fun SettingsPage(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text(tr("Hủy")) }
+                TextButton(onClick = { showThemeDialog = false }) { Text(tr("Cancel")) }
             }
         )
     }

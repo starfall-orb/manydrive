@@ -73,7 +73,7 @@ class ExternalMediaActivity : ComponentActivity() {
         if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Toast.makeText(
                 this,
-                tr("Không có quyền thông báo: trình phát vẫn chạy nền nhưng điều khiển media có thể không hiện trên thanh thông báo."),
+                tr("No notification permission: the player still runs in the background but media controls may not appear in the notification bar."),
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -108,7 +108,7 @@ class ExternalMediaActivity : ComponentActivity() {
         val uri = incoming?.data
         if (incoming?.action != Intent.ACTION_VIEW || uri == null || uri.scheme !in setOf("content", "file")) {
             loading = false
-            error = tr("Không thể mở tệp.")
+            error = tr("Cannot open file.")
             return
         }
 
@@ -129,7 +129,7 @@ class ExternalMediaActivity : ComponentActivity() {
                 }
                 .onFailure {
                     loading = false
-                    error = it.message ?: tr("Không thể mở tệp.")
+                    error = it.message ?: tr("Cannot open file.")
                 }
         }
     }
@@ -147,7 +147,7 @@ class ExternalMediaActivity : ComponentActivity() {
                     .onFailure { failure ->
                         controllerFuture = null
                         loading = false
-                        error = failure.message ?: tr("Không thể kết nối dịch vụ phát media.")
+                        error = failure.message ?: tr("Unable to connect to media streaming service.")
                     }
             }, ContextCompat.getMainExecutor(this))
         }
@@ -166,7 +166,7 @@ class ExternalMediaActivity : ComponentActivity() {
             }
             .onFailure {
                 loading = false
-                error = it.message ?: tr("Không thể mở media.")
+                error = it.message ?: tr("Cannot open media.")
             }
     }
 
@@ -185,7 +185,7 @@ class ExternalMediaActivity : ComponentActivity() {
         } ?: contentResolver.getType(uri)
         val mime = localFileMimeType(name, resolvedType)
         require(mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")) {
-            tr("Không thể xem loại tệp này.")
+            tr("This file type cannot be previewed.")
         }
 
         val id = if (uri.scheme == "file") requireNotNull(uri.path) else uri.toString()
@@ -236,7 +236,7 @@ private fun ExternalMediaScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(error, color = Color.White, style = MaterialTheme.typography.bodyLarge)
-                FilledTonalButton(onClick = onBack) { Text(tr("Đóng")) }
+                FilledTonalButton(onClick = onBack) { Text(tr("Close")) }
             }
         }
 

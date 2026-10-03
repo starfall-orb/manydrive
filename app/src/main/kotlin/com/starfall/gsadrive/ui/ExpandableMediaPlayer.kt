@@ -286,7 +286,7 @@ internal fun ExpandableMediaPlayer(
                     IconButton(onClick = onMinimize) {
                         Icon(
                             Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = tr("Thu nhỏ trình phát"),
+                            contentDescription = tr("Minimize player"),
                             tint = Color.White
                         )
                     }

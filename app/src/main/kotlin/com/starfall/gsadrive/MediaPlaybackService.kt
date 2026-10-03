@@ -108,7 +108,7 @@ object PlaybackSourceRegistry {
 
     @Throws(IOException::class)
     fun resolve(mediaId: String): File {
-        val source = sources[mediaId] ?: throw IOException(tr("Không tìm thấy nguồn media: $mediaId"))
+        val source = sources[mediaId] ?: throw IOException(tr("Media source not found: $mediaId"))
         if (source.accountType == "LOCAL") return source.cacheFile
         if (source.accountType == "S3") throw IOException("S3 media must use presigned streaming")
         if (source.cacheFile.isFile && source.cacheFile.length() > 0L) return source.cacheFile
@@ -123,11 +123,11 @@ object PlaybackSourceRegistry {
             try {
                 when (source.accountType) {
                     "GOOGLE", "SERVICE" -> DriveApi.downloadTo(
-                        source.accessToken ?: throw IOException(tr("Thiếu quyền truy cập media.")),
+                        source.accessToken ?: throw IOException(tr("Missing media access.")),
                         source.file.id,
                         temporary
                     )
-                    else -> throw IOException(tr("Loại tài khoản không hỗ trợ phát media."))
+                    else -> throw IOException(tr("The account type does not support media playback."))
                 }
                 if (!temporary.renameTo(target)) {
                     temporary.copyTo(target, overwrite = true)
@@ -137,7 +137,7 @@ object PlaybackSourceRegistry {
             } catch (t: Throwable) {
                 temporary.delete()
                 if (t is IOException) throw t
-                throw IOException(t.message ?: tr("Không thể tải media."), t)
+                throw IOException(t.message ?: tr("Unable to load media."), t)
             }
         }
     }
@@ -148,32 +148,32 @@ object PlaybackSourceRegistry {
 internal fun resolvePlaybackDataSpec(dataSpec: DataSpec): DataSpec {
     if (dataSpec.uri.scheme != "manydrive") return dataSpec
     val mediaId = dataSpec.uri.getQueryParameter("id")
-        ?: throw IOException(tr("Media URI không hợp lệ."))
+        ?: throw IOException(tr("Media URI is not valid."))
     val source = PlaybackSourceRegistry.get(mediaId)
-        ?: throw IOException(tr("Không tìm thấy nguồn media: $mediaId"))
+        ?: throw IOException(tr("Media source not found: $mediaId"))
     if (source.accountType == "CONTENT") return dataSpec.withUri(Uri.parse(source.file.id))
     if (source.accountType == "PHOTOS") {
         try {
             val url = com.starfall.gsadrive.data.PhotosApi.mediaUrl(
-                source.photosTokenProvider?.invoke() ?: source.accessToken ?: throw IOException(tr("Cần cấp quyền Google Photos.")),
+                source.photosTokenProvider?.invoke() ?: source.accessToken ?: throw IOException(tr("Google Photos authorization is required.")),
                 requireNotNull(source.file.photosMediaId), true)
             return dataSpec.withUri(Uri.parse(url))
         } catch (error: Exception) {
             if (error is IOException) throw error
-            throw IOException(error.message ?: tr("Không thể tải Google Photos."), error)
+            throw IOException(error.message ?: tr("Could not load Google Photos."), error)
         }
     }
     if (source.accountType == "S3") {
         val remote = try {
             runBlocking {
                 S3Api.downloadSource(
-                    source.s3Config ?: throw IOException(tr("Thiếu cấu hình S3 cho media.")),
+                    source.s3Config ?: throw IOException(tr("Missing S3 configuration for media.")),
                     source.file.id
                 )
             }
         } catch (error: Exception) {
             if (error is IOException) throw error
-            throw IOException(tr("Không thể mở luồng media S3."), error)
+            throw IOException(tr("Could not open the S3 media stream."), error)
         }
         // Preserve position and length: Media3 turns them into HTTP Range requests.
         return dataSpec.withUri(Uri.parse(remote.url)).withAdditionalHeaders(remote.headers)
@@ -264,14 +264,14 @@ private class ManyDriveArtworkBitmapLoader : BitmapLoader {
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> = executor.submit(Callable {
         BitmapFactory.decodeByteArray(data, 0, data.size)
-            ?: throw IOException(tr("Không thể giải mã artwork"))
+            ?: throw IOException(tr("Unable to decode artwork"))
     })
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> = executor.submit(Callable {
-        if (uri.scheme != "manydrive-artwork") throw IOException(tr("Artwork URI không được hỗ trợ: $uri"))
-        val mediaId = uri.getQueryParameter("id") ?: throw IOException(tr("Artwork thiếu media id"))
-        val source = PlaybackSourceRegistry.get(mediaId) ?: throw IOException(tr("Không tìm thấy nguồn artwork"))
-        val thumbnailUrl = source.file.thumbnailUrl ?: throw IOException(tr("Media không có thumbnail"))
+        if (uri.scheme != "manydrive-artwork") throw IOException(tr("Unsupported Artwork URI: $uri"))
+        val mediaId = uri.getQueryParameter("id") ?: throw IOException(tr("Artwork missing media id"))
+        val source = PlaybackSourceRegistry.get(mediaId) ?: throw IOException(tr("No artwork source found"))
+        val thumbnailUrl = source.file.thumbnailUrl ?: throw IOException(tr("Media does not have thumbnails"))
         ThumbnailRepository.load(thumbnailUrl, source.accessToken)
     })
 
@@ -307,7 +307,7 @@ private class FixedTransportNotificationProvider(context: Context) : MediaNotifi
             if (player.playWhenReady && player.playbackState != Player.STATE_ENDED)
                 CommandButton.ICON_PAUSE else CommandButton.ICON_PLAY
         )
-            .setDisplayName(if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) tr("Tạm dừng") else tr("Phát"))
+            .setDisplayName(if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) tr("Pause") else tr("Play"))
             .setPlayerCommand(Player.COMMAND_PLAY_PAUSE)
             .setSlots(CommandButton.SLOT_CENTRAL)
             .build()

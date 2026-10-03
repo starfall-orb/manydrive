@@ -30,12 +30,12 @@ internal class PhotosLibraryController(
         val request = pending
         pending = null
         if (request != null && current(request)) {
-            if (result.resultCode != android.app.Activity.RESULT_OK) fail(request, tr("Đã hủy cấp quyền Google Photos."))
+            if (result.resultCode != android.app.Activity.RESULT_OK) fail(request, tr("Google Photos permission has been revoked."))
             else runCatching { authorization.getAuthorizationResultFromIntent(result.data).accessToken }
                 .onSuccess { value ->
-                    if (value == null) fail(request, tr("Google không trả về quyền Photos."))
+                    if (value == null) fail(request, tr("Google doesn't return Photos permission."))
                     else load(request, value)
-                }.onFailure { fail(request, tr("Không thể cấp quyền Google Photos.")) }
+                }.onFailure { fail(request, tr("Unable to grant Google Photos permission.")) }
         }
     }
 
@@ -49,8 +49,8 @@ internal class PhotosLibraryController(
                     .setAccount(Account(entry.id, "com.google"))
                     .setRequestedScopes(listOf(Scope(PhotosApi.READ_SCOPE))).build()),
                 30, java.util.concurrent.TimeUnit.SECONDS)
-            check(!result.hasResolution()) { tr("Cần cấp quyền Google Photos.") }
-            result.accessToken ?: error(tr("Google không trả về quyền Photos."))
+            check(!result.hasResolution()) { tr("Google Photos authorization is required.") }
+            result.accessToken ?: error(tr("Google doesn't return Photos permission."))
         }
     }
 
@@ -73,17 +73,17 @@ internal class PhotosLibraryController(
                 if (!current(request)) return@addOnSuccessListener
                 if (result.hasResolution()) {
                     val intent = result.pendingIntent
-                    if (intent == null) fail(request, tr("Không thể mở cấp quyền Google Photos."))
+                    if (intent == null) fail(request, tr("Unable to open Google Photos permissions."))
                     else {
                         pending = request
                         resolution.launch(IntentSenderRequest.Builder(intent.intentSender).build())
                     }
                 } else {
                     val value = result.accessToken
-                    if (value == null) fail(request, tr("Google không trả về quyền Photos."))
+                    if (value == null) fail(request, tr("Google doesn't return Photos permission."))
                     else load(request, value)
                 }
-            }.addOnFailureListener { fail(request, tr("Không thể cấp quyền Google Photos.")) }
+            }.addOnFailureListener { fail(request, tr("Unable to grant Google Photos permission.")) }
     }
 
     private fun load(request: Pair<String, Int>, value: String) {
@@ -94,7 +94,7 @@ internal class PhotosLibraryController(
             val result = runCatching { withContext(Dispatchers.IO) { PhotosApi.list(value) } }
             if (!current(request)) return@launch
             result.onSuccess { update(request.first, Model(files = it)) }
-                .onFailure { fail(request, it.message ?: tr("Không thể tải Google Photos.")) }
+                .onFailure { fail(request, it.message ?: tr("Could not load Google Photos.")) }
         }
     }
 }

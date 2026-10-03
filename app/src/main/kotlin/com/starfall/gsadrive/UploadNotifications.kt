@@ -9,8 +9,8 @@ import androidx.core.app.NotificationCompat
 /** Upload progress lives in the system notification shade instead of the browser UI. */
 internal class UploadNotifications(context: Context) {
     enum class Kind(val id: Int, val runningTitle: String) {
-        DRIVE(3101, tr("Đang tải lên Drive")),
-        PHOTOS(3102, tr("Đang tải lên Google Photos"))
+        DRIVE(3101, tr("Uploading to Drive")),
+        PHOTOS(3102, tr("Uploading to Google Photos"))
     }
 
     // Each batch owns its notification, including concurrent batches of the same kind.
@@ -23,10 +23,10 @@ internal class UploadNotifications(context: Context) {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    tr("Tải lên"),
+                    tr("Upload"),
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = tr("Tiến trình tải tệp lên dịch vụ đám mây")
+                    description = tr("Progress of uploading files to the cloud service")
                     setShowBadge(false)
                 }
             )
@@ -41,9 +41,9 @@ internal class UploadNotifications(context: Context) {
         total: Int? = null
     ) {
         val countText = buildString {
-            append(tr("Đã xong $completed"))
-            if (failed > 0) append(tr(" · lỗi $failed"))
-            if (total != null) append(tr(" / $total tệp")) else append(tr(" tệp"))
+            append(tr("Done $completed"))
+            if (failed > 0) append(tr("· error $failed"))
+            if (total != null) append(tr("/ $total files")) else append(tr("files"))
         }
         val text = currentName?.takeIf { it.isNotBlank() }?.let { "$it · $countText" } ?: countText
         val builder = base(kind)
@@ -66,7 +66,7 @@ internal class UploadNotifications(context: Context) {
         runCatching { manager.notify(
             batchTag, kind.id,
             base(kind)
-                .setContentTitle(if (success) tr("Tải lên hoàn tất") else tr("Tải lên chưa hoàn tất"))
+                .setContentTitle(if (success) tr("Upload complete") else tr("Upload incomplete"))
                 .setContentText(message)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(message))
                 .setOngoing(false)

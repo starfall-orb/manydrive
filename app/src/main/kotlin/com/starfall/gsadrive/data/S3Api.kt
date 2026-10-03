@@ -120,7 +120,7 @@ object S3Api {
                 bucket = config.bucket
                 this.key = key
             }) { response ->
-                requireNotNull(response.body) { tr("S3 không trả về nội dung tệp.") }.writeToFile(target)
+                requireNotNull(response.body) { tr("S3 does not return file content.") }.writeToFile(target)
             }
         }
     }

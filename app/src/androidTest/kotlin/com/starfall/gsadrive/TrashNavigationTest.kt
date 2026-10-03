@@ -28,12 +28,12 @@ class TrashNavigationTest {
                 )
             }
         }
-        compose.onNodeWithContentDescription("Mở menu").performClick()
-        compose.onNodeWithText("Thùng rác").performClick()
+        compose.onNodeWithContentDescription("Open menu").performClick()
+        compose.onNodeWithText("Trash").performClick()
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(3, selected.intValue) }
-        compose.onNodeWithText("Thùng rác đang trống.").assertIsDisplayed()
-        compose.onNodeWithText("Tệp").performClick()
+        compose.onNodeWithText("Trash is empty.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back").performClick()
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(0, selected.intValue) }
     }

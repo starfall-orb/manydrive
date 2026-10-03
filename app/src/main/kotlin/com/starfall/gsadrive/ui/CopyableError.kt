@@ -33,7 +33,7 @@ internal fun CopyableError(
             Text(text, color = color, style = style)
         }
         IconButton(onClick = { clipboard.setText(AnnotatedString(text)) }) {
-            Icon(Icons.Outlined.ContentCopy, tr("Sao chép thông báo"), tint = color)
+            Icon(Icons.Outlined.ContentCopy, tr("Copy message"), tint = color)
         }
     }
 }

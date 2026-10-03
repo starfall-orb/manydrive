@@ -33,6 +33,13 @@ internal fun LocalFileActions(
     file: DriveFile, access: LocalFileAccess,
     cloudDestination: String?,
     upload: (DriveFile, (Result<Unit>) -> Unit) -> Unit,
+    cloudAccount: AccountEntry? = null,
+    loadCloudFolders: (String?, (Result<List<DriveFile>>) -> Unit) -> Unit = { _, done ->
+        done(Result.failure(IllegalStateException("No cloud account")))
+    },
+    transferToCloud: (DriveFile, String?, Boolean, (Result<Unit>) -> Unit) -> Unit = { _, _, _, done ->
+        done(Result.failure(IllegalStateException("No cloud account")))
+    },
     onChanged: () -> Unit, onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -40,6 +47,11 @@ internal fun LocalFileActions(
     var mode by remember(file.id) { mutableStateOf("menu") }
     var name by remember(file.id) { mutableStateOf(file.name) }
     var destination by remember(file.id) { mutableStateOf(access.root.path) }
+    var destinationScope by remember(file.id) { mutableStateOf("system") }
+    var cloudPath by remember(file.id) { mutableStateOf<List<DriveFile>>(emptyList()) }
+    var cloudFolders by remember(file.id) { mutableStateOf<List<DriveFile>>(emptyList()) }
+    var cloudFoldersLoading by remember(file.id) { mutableStateOf(false) }
+    var cloudDestinationValid by remember(file.id) { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var folders by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -53,14 +65,26 @@ internal fun LocalFileActions(
             error = result.exceptionOrNull()?.message
         }
     }
-    LaunchedEffect(destination, mode) {
-        if (mode !in listOf("copy", "move")) return@LaunchedEffect
+    LaunchedEffect(destination, mode, destinationScope) {
+        if (mode !in listOf("copy", "move") || destinationScope != "system") return@LaunchedEffect
         foldersLoading = true; destinationValid = false; error = null
         val result = withContext(Dispatchers.IO) { runCatching { access.list(destination).filter { it.isDirectory } } }
         folders = result.getOrDefault(emptyList())
         error = result.exceptionOrNull()?.message
         destinationValid = result.isSuccess
         foldersLoading = false
+    }
+    fun loadCloud(parentId: String?) {
+        cloudFoldersLoading = true
+        cloudDestinationValid = false
+        error = null
+        loadCloudFolders(parentId) { result ->
+            cloudFoldersLoading = false
+            result.onSuccess {
+                cloudFolders = it
+                cloudDestinationValid = true
+            }.onFailure { error = it.message ?: tr("Unable to load directory listing.") }
+        }
     }
     fun perform(operation: () -> Unit) {
         busy = true; error = null
@@ -79,15 +103,15 @@ internal fun LocalFileActions(
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (mode) {
                 "menu" -> {
-                    if (!file.isFolder) LocalAction(Icons.Outlined.OpenInNew, tr("Mở bằng ứng dụng khác"), !busy) {
+                    if (!file.isFolder) LocalAction(Icons.Outlined.OpenInNew, tr("Open with another app"), !busy) {
                         runCatching { openLocalExternally(context, access.checked(file.id), file.mimeType, false) }
                             .onSuccess { onDismiss() }.onFailure { error = it.message }
                     }
-                    LocalAction(Icons.Outlined.Edit, tr("Đổi tên"), !busy) { mode = "rename" }
-                    LocalAction(Icons.Outlined.ContentCopy, tr("Sao chép"), !busy) { mode = "copy" }
-                    LocalAction(Icons.Outlined.DriveFileMove, tr("Di chuyển"), !busy) { mode = "move" }
-                    LocalAction(Icons.Outlined.Delete, tr("Xóa"), !busy) { mode = "delete" }
-                    LocalAction(Icons.Outlined.Share, tr("Chia sẻ"), !busy) {
+                    LocalAction(Icons.Outlined.Edit, tr("Rename"), !busy) { mode = "rename" }
+                    LocalAction(Icons.Outlined.ContentCopy, tr("Copy"), !busy) { mode = "copy" }
+                    LocalAction(Icons.Outlined.DriveFileMove, tr("Move"), !busy) { mode = "move" }
+                    LocalAction(Icons.Outlined.Delete, tr("Delete"), !busy) { mode = "delete" }
+                    LocalAction(Icons.Outlined.Share, tr("Share"), !busy) {
                         busy = true; error = null
                         scope.launch {
                             val result = runCatching {
@@ -100,52 +124,117 @@ internal fun LocalFileActions(
                             if (result.isSuccess) onDismiss() else error = result.exceptionOrNull()?.message
                         }
                     }
-                    LocalAction(Icons.Outlined.CloudUpload, tr("Tải lên tài khoản cloud"), !busy) { mode = "upload" }
-                    LocalAction(Icons.Outlined.Info, tr("Thông tin"), !busy) { mode = "info" }
+                    LocalAction(Icons.Outlined.CloudUpload, tr("Upload to cloud account"), !busy) { mode = "upload" }
+                    LocalAction(Icons.Outlined.Info, tr("Details"), !busy) { mode = "info" }
                 }
                 "rename" -> {
-                    OutlinedTextField(name, { name = it }, label = { Text(tr("Tên mới")) }, enabled = !busy, singleLine = true)
-                    FilledTonalButton(enabled = !busy && name.isNotBlank(), onClick = { perform { access.rename(file.id, name) } }) { Text(tr("Đổi tên")) }
+                    OutlinedTextField(name, { name = it }, label = { Text(tr("New name")) }, enabled = !busy, singleLine = true)
+                    FilledTonalButton(enabled = !busy && name.isNotBlank(), onClick = { perform { access.rename(file.id, name) } }) { Text(tr("Rename")) }
                 }
                 "copy", "move" -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(enabled = !busy && destination != access.root.path, onClick = { destination = File(destination).parent ?: access.root.path }) {
-                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Quay lại"))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = destinationScope == "system",
+                            onClick = { destinationScope = "system"; error = null },
+                            label = { Text(tr("System Files")) },
+                            leadingIcon = { Icon(Icons.Outlined.Storage, null, Modifier.size(18.dp)) }
+                        )
+                        cloudAccount?.let { account ->
+                            FilterChip(
+                                selected = destinationScope == "cloud",
+                                onClick = {
+                                    destinationScope = "cloud"
+                                    cloudPath = emptyList()
+                                    loadCloud(null)
+                                },
+                                label = { Text(account.title, maxLines = 1) },
+                                leadingIcon = { Icon(Icons.Outlined.Cloud, null, Modifier.size(18.dp)) }
+                            )
                         }
-                        Text(destination, Modifier.weight(1f))
                     }
-                    if (foldersLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    folders.forEach { folder ->
-                        LocalAction(Icons.Outlined.Folder, folder.name, !busy) { destination = folder.path }
-                    }
-                    FilledTonalButton(enabled = !busy && !foldersLoading && destinationValid,
-                        onClick = { perform { access.transfer(file.id, destination, mode == "move") } }) {
-                        Text(tr(if (mode == "move") "Di chuyển vào đây" else "Sao chép vào đây"))
+                    if (destinationScope == "system") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(enabled = !busy && destination != access.root.path, onClick = {
+                                destination = File(destination).parent ?: access.root.path
+                            }) {
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
+                            }
+                            Text(destination, Modifier.weight(1f), maxLines = 1)
+                        }
+                        if (foldersLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        folders.forEach { folder ->
+                            LocalAction(Icons.Outlined.Folder, folder.name, !busy) { destination = folder.path }
+                        }
+                        FilledTonalButton(
+                            enabled = !busy && !foldersLoading && destinationValid,
+                            onClick = { perform { access.transfer(file.id, destination, mode == "move") } }
+                        ) {
+                            Text(tr(if (mode == "move") "Move here" else "Copy here"))
+                        }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(enabled = !busy && cloudPath.isNotEmpty(), onClick = {
+                                cloudPath = cloudPath.dropLast(1)
+                                loadCloud(cloudPath.lastOrNull()?.id)
+                            }) {
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Back"))
+                            }
+                            Text(
+                                cloudPath.lastOrNull()?.name ?: cloudAccount?.title.orEmpty(),
+                                Modifier.weight(1f),
+                                maxLines = 1
+                            )
+                        }
+                        if (cloudFoldersLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        cloudFolders.forEach { folder ->
+                            LocalAction(Icons.Outlined.Folder, folder.name, !busy && !cloudFoldersLoading) {
+                                cloudPath = cloudPath + folder
+                                loadCloud(folder.id)
+                            }
+                        }
+                        FilledTonalButton(
+                            enabled = !busy && !cloudFoldersLoading && cloudDestinationValid,
+                            onClick = {
+                                busy = true
+                                error = null
+                                transferToCloud(file, cloudPath.lastOrNull()?.id, mode == "move") { result ->
+                                    busy = false
+                                    if (result.isSuccess) {
+                                        onChanged()
+                                        onDismiss()
+                                    } else {
+                                        error = result.exceptionOrNull()?.message ?: tr("File transfer could not be completed.")
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(tr(if (mode == "move") "Move here" else "Copy here"))
+                        }
                     }
                 }
                 "delete" -> {
-                    Text(tr(if (file.isFolder) "Xóa thư mục và toàn bộ nội dung bên trong?" else "Xóa tệp này?"))
+                    Text(tr(if (file.isFolder) "Delete this folder and all its contents?" else "Delete this file?"))
                     Button(enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        onClick = { perform { access.delete(file.id) } }) { Text(tr("Xóa")) }
+                        onClick = { perform { access.delete(file.id) } }) { Text(tr("Delete")) }
                 }
                 "upload" -> {
-                    Text(cloudDestination ?: tr("Hãy thêm hoặc chọn một tài khoản trước khi tải lên."))
+                    Text(cloudDestination ?: tr("Add or select an account before uploading."))
                     FilledTonalButton(enabled = !busy && cloudDestination != null, onClick = {
                         busy = true; error = null
                         upload(file) { result ->
                             busy = false
                             if (result.isSuccess) onDismiss() else error = result.exceptionOrNull()?.message
                         }
-                    }) { Text(tr("Tải lên")) }
+                    }) { Text(tr("Upload")) }
                 }
                 "info" -> {
-                    Text(tr("Đường dẫn") + ": " + file.id)
-                    Text(tr("Loại") + ": " + if (file.isFolder) tr("Thư mục") else file.mimeType)
-                    totalSize?.let { Text(tr("Kích thước") + ": " + android.text.format.Formatter.formatFileSize(context, it)) }
-                    Text(tr("Sửa đổi") + ": " + file.modifiedTime.orEmpty())
+                    Text(tr("Path") + ": " + file.id)
+                    Text(tr("Type") + ": " + if (file.isFolder) tr("Folder") else file.mimeType)
+                    totalSize?.let { Text(tr("Size") + ": " + android.text.format.Formatter.formatFileSize(context, it)) }
+                    Text(tr("Modified") + ": " + file.modifiedTime.orEmpty())
                 }
             }
-            if (mode != "menu") TextButton(enabled = !busy, onClick = { mode = "menu"; error = null }) { Text(tr("Quay lại")) }
+            if (mode != "menu") TextButton(enabled = !busy, onClick = { mode = "menu"; error = null }) { Text(tr("Back")) }
             Spacer(Modifier.navigationBarsPadding())
         }
     }

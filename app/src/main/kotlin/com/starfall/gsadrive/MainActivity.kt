@@ -181,7 +181,7 @@ class MainActivity : ComponentActivity() {
         val start = pendingLegacyDownload
         pendingLegacyDownload = null
         if (granted) start?.invoke()
-        else Toast.makeText(this, tr("Cần quyền lưu trữ để tải vào Downloads."), Toast.LENGTH_LONG).show()
+        else Toast.makeText(this, tr("Needs storage permission to download to Downloads."), Toast.LENGTH_LONG).show()
     }
     private lateinit var photosLibrary: PhotosLibraryController
     private var externalOpenRevision = 0
@@ -217,13 +217,13 @@ class MainActivity : ComponentActivity() {
                 } ?: contentResolver.getType(uri)
                 val mime = localFileMimeType(name, resolvedType)
                 require(mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")) {
-                    tr("Không thể xem loại tệp này.")
+                    tr("This file type cannot be previewed.")
                 }
                 DriveFile(if (uri.scheme == "file") requireNotNull(uri.path) else uri.toString(), name, mime, null)
             } }
             if (request != externalOpenRevision) return@launch
             result.onSuccess { viewerCoordinator.openLocal(it) }.onFailure {
-                Toast.makeText(this@MainActivity, it.message ?: tr("Không thể mở tệp."), Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, it.message ?: tr("Cannot open file."), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -298,7 +298,7 @@ class MainActivity : ComponentActivity() {
             player = { playback },
             awaitPlayer = {
                 playback ?: withContext(Dispatchers.IO) {
-                    controllerFuture?.get() ?: kotlin.error(tr("Dịch vụ phát media chưa sẵn sàng."))
+                    controllerFuture?.get() ?: kotlin.error(tr("Media streaming service is not ready yet."))
                 }
             },
             requestNotificationPermission = ::ensureNotificationPermission,
@@ -332,7 +332,7 @@ class MainActivity : ComponentActivity() {
         notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             notificationPermissionPending = false
             if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                Toast.makeText(this, tr("Không có quyền thông báo: trình phát vẫn chạy nền nhưng điều khiển media có thể không hiện trên thanh thông báo."), Toast.LENGTH_LONG).show()
+                Toast.makeText(this, tr("No notification permission: the player still runs in the background but media controls may not appear in the notification bar."), Toast.LENGTH_LONG).show()
             }
         }
         // Notifications are the only runtime permission this app needs. Ask automatically only
@@ -354,7 +354,7 @@ class MainActivity : ComponentActivity() {
                         openPendingPlayer()
                     }
                     .onFailure {
-                        Toast.makeText(this, tr("Không thể kết nối dịch vụ phát media."), Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, tr("Unable to connect to media streaming service."), Toast.LENGTH_LONG).show()
                     }
             }, ContextCompat.getMainExecutor(this))
         }
@@ -380,7 +380,7 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode != RESULT_OK) {
                 pendingPhotosFiles = emptyList()
                 pendingPhotosMode = PhotosFolderUploadMode.RAW
-                Toast.makeText(this, tr("Đã hủy cấp quyền Google Photos."), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, tr("Google Photos permission has been revoked."), Toast.LENGTH_SHORT).show()
             } else {
                 runCatching { authorization.getAuthorizationResultFromIntent(result.data) }
                     .onSuccess { auth ->
@@ -388,12 +388,12 @@ class MainActivity : ComponentActivity() {
                             pendingPhotosFiles.takeIf { files -> files.isNotEmpty() }?.let { files ->
                                 startPhotosUpload(files, token, pendingPhotosMode)
                             }
-                        } ?: Toast.makeText(this, tr("Google không trả về quyền Photos."), Toast.LENGTH_LONG).show()
+                        } ?: Toast.makeText(this, tr("Google doesn't return Photos permission."), Toast.LENGTH_LONG).show()
                     }
                     .onFailure {
                         pendingPhotosFiles = emptyList()
                         pendingPhotosMode = PhotosFolderUploadMode.RAW
-                        Toast.makeText(this, tr("Không thể cấp quyền Google Photos."), Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, tr("Unable to grant Google Photos permission."), Toast.LENGTH_LONG).show()
                     }
             }
         }
@@ -404,19 +404,19 @@ class MainActivity : ComponentActivity() {
             pendingAuthorizationTarget = null
             if (expected == null || expected != accountUi.active?.key) return@registerForActivityResult
             if (result.resultCode != RESULT_OK) {
-                if (target != null) browserError(target, tr("Đã hủy cấp quyền Google."))
-                else error(tr("Đã hủy cấp quyền Google."))
+                if (target != null) browserError(target, tr("Google permission has been revoked."))
+                else error(tr("Google permission has been revoked."))
             } else {
                 runCatching { authorization.getAuthorizationResultFromIntent(result.data) }
                     .onSuccess { auth ->
                         val token = auth.accessToken
                         if (token != null) loadDrive(token, target)
-                        else if (target != null) browserError(target, tr("Google không trả về access token."))
-                        else error(tr("Google không trả về access token."))
+                        else if (target != null) browserError(target, tr("Google does not return an access token."))
+                        else error(tr("Google does not return an access token."))
                     }
                     .onFailure {
-                        if (target != null) browserError(target, tr("Không thể cấp quyền Google."))
-                        else error(tr("Không thể cấp quyền Google."))
+                        if (target != null) browserError(target, tr("Unable to grant Google permission."))
+                        else error(tr("Unable to grant Google permission."))
                     }
             }
         }
@@ -440,15 +440,15 @@ class MainActivity : ComponentActivity() {
                     refreshAccounts()
                     accountUi = accountUi.copy(revision = accountUi.revision + 1, message = null)
                     activate(accountUi.entries.first { it.type == AccountType.GOOGLE && it.id == email })
-                } else accountError(tr("Không lấy được tài khoản Google đã chọn."))
+                } else accountError(tr("Unable to retrieve selected Google account."))
             }
         }
         runCatching { s3Store.load() }
             .onSuccess { s3Accounts = it }
-            .onFailure { s3Available = false; accountError(tr("Không thể đọc tài khoản S3 đã lưu.")) }
+            .onFailure { s3Available = false; accountError(tr("Unable to read saved S3 account.")) }
         runCatching { serviceStore.load() }
             .onSuccess { serviceAccounts = it }
-            .onFailure { serviceAvailable = false; accountError(tr("Không thể đọc Service Account đã lưu.")) }
+            .onFailure { serviceAvailable = false; accountError(tr("Unable to read saved Service Account.")) }
         refreshAccounts()
         val restoredKey = if (selection.contains("active")) selection.getString("active", "")
             else googleStore.active()?.let { "GOOGLE:$it" }
@@ -469,14 +469,16 @@ class MainActivity : ComponentActivity() {
                         loadPermissions = ::loadPermissions,
                         removePermission = ::removePermission,
                         loadFolders = ::loadMoveFolders,
+                        copy = ::copyFile,
                         move = ::moveFile,
+                        transferToLocal = ::transferCloudToLocal,
                         moveMany = ::moveFiles,
                         trash = ::moveToTrash,
                         trashMany = ::moveToTrash
                     ),
                     accountUi, ::activate, ::removeAccount,
                     { servicePicker.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) },
-                    ::openFolder, ::goUp, ::searchDrive, ::openSearchFolder, { pickUpload(true) }, ::restoreFile,
+                    ::openFolder, ::goUp, ::searchDrive, ::openSearchFolder, { pickUpload(true) }, ::restoreTrashFiles, ::deleteTrashFiles,
                     themeMode, superDark,
                     { themeMode = it; selection.edit().putString("theme", it.name).apply() },
                     { superDark = it; selection.edit().putBoolean("superDark", it).apply() },
@@ -484,12 +486,13 @@ class MainActivity : ComponentActivity() {
                     { showHiddenSystemFiles = it; selection.edit().putBoolean("showHiddenSystemFiles", it).apply() },
                     { lifecycleScope.launch {
                         withContext(Dispatchers.IO) { listingCache.clearAll() }
-                        Toast.makeText(this@MainActivity, tr("Đã xóa cache danh sách tệp"), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, tr("File list cache cleared"), Toast.LENGTH_SHORT).show()
                     } },
                     viewer, { file, queue -> openPreview(file, swipeQueue = queue) }, ::closePreview, ::updatePreviewText, ::savePreviewText, ::swipePreview,
                     playback, ::minimizePreview, ::expandPreview, browserModels = browserTabModels,
                     openLocalFile = { file, queue -> viewerCoordinator.openLocal(file, queue) },
-                    uploadLocalFile = ::uploadLocalFile
+                    uploadLocalFile = ::uploadLocalFile,
+                    transferLocalToCloud = ::transferLocalFileToCloud
                 )
             }
         }
@@ -609,11 +612,11 @@ class MainActivity : ComponentActivity() {
         val account = accountUi.active
         val token = model.token
         if (account == null || account.type == AccountType.S3) {
-            done(Result.failure(UnsupportedOperationException(tr("Tìm kiếm toàn Drive chỉ áp dụng cho Google Drive."))))
+            done(Result.failure(UnsupportedOperationException(tr("Drive-wide search only applies to Google Drive."))))
             return
         }
         if (token == null) {
-            done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước khi tìm kiếm."))))
+            done(Result.failure(IllegalStateException(tr("Need to grant Drive permission before searching."))))
             return
         }
         lifecycleScope.launch {
@@ -719,7 +722,7 @@ class MainActivity : ComponentActivity() {
                 AccountPicker.AccountChooserOptions.Builder()
                     .setAllowableAccountsTypes(listOf("com.google"))
                     .setAlwaysShowAccountPicker(true).build()))
-        }.onFailure { accountError(tr("Không thể mở danh sách tài khoản Google.")) }
+        }.onFailure { accountError(tr("Cannot open Google account list.")) }
     }
 
     private fun authorize(target: BrowserRefreshTarget? = null) {
@@ -742,13 +745,13 @@ class MainActivity : ComponentActivity() {
                         pendingAuthorizationTarget = refreshTarget
                         result.pendingIntent?.let {
                             resolution.launch(IntentSenderRequest.Builder(it.intentSender).build())
-                        } ?: browserError(refreshTarget, tr("Không thể mở cấp quyền."))
+                        } ?: browserError(refreshTarget, tr("Unable to open permissions."))
                     }
                     result.accessToken != null -> loadDrive(result.accessToken!!, refreshTarget)
-                    else -> browserError(refreshTarget, tr("Google không trả về quyền Drive."))
+                    else -> browserError(refreshTarget, tr("Google does not return Drive permissions."))
                 }
             }.addOnFailureListener {
-                if (isBrowserRefreshCurrent(refreshTarget)) browserError(refreshTarget, tr("Không thể cấp quyền Google."))
+                if (isBrowserRefreshCurrent(refreshTarget)) browserError(refreshTarget, tr("Unable to grant Google permission."))
             }
     }
 
@@ -793,13 +796,13 @@ class MainActivity : ComponentActivity() {
             it.isFolder || it.mimeType.startsWith("image/") || it.mimeType.startsWith("video/")
         }
         if (eligible.isEmpty()) {
-            Toast.makeText(this, tr("Không có ảnh, video hoặc thư mục phù hợp để tải lên Google Photos."), Toast.LENGTH_LONG).show()
+            Toast.makeText(this, tr("There are no suitable photos, videos, or folders to upload to Google Photos."), Toast.LENGTH_LONG).show()
             return
         }
         val source = accountUi.active ?: return
         val destinations = accountUi.entries.filter { it.type == AccountType.GOOGLE }
         if (destinations.isEmpty()) {
-            Toast.makeText(this, tr("Hãy thêm tài khoản Google để tải lên Google Photos."), Toast.LENGTH_LONG).show()
+            Toast.makeText(this, tr("Add a Google account to upload to Google Photos."), Toast.LENGTH_LONG).show()
             return
         }
         fun authorizeDestination(destination: AccountEntry) {
@@ -815,17 +818,17 @@ class MainActivity : ComponentActivity() {
                             pendingPhotosAuthorization = source.key
                             result.pendingIntent?.let {
                                 photosAuthorizationResolution.launch(IntentSenderRequest.Builder(it.intentSender).build())
-                            } ?: error(tr("Không thể mở cấp quyền Google Photos."))
+                            } ?: error(tr("Unable to open Google Photos permissions."))
                         }
                         result.accessToken != null -> startPhotosUpload(eligible, result.accessToken!!, mode)
-                        else -> error(tr("Google không trả về quyền Photos."))
+                        else -> error(tr("Google doesn't return Photos permission."))
                     }
-                }.addOnFailureListener { error(tr("Không thể cấp quyền Google Photos.")) }
+                }.addOnFailureListener { error(tr("Unable to grant Google Photos permission.")) }
         }
         if (source.type == AccountType.GOOGLE) authorizeDestination(source)
-        else android.app.AlertDialog.Builder(this).setTitle(tr("Tài khoản Google Photos"))
+        else android.app.AlertDialog.Builder(this).setTitle(tr("Google Photos account"))
             .setItems(destinations.map { it.id }.toTypedArray()) { _, index -> authorizeDestination(destinations[index]) }
-            .setNegativeButton(tr("Hủy"), null).show()
+            .setNegativeButton(tr("Cancel"), null).show()
     }
 
     private fun startPhotosUpload(files: List<DriveFile>, photosToken: String, mode: PhotosFolderUploadMode) {
@@ -900,22 +903,22 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 fatal = e
             } finally {
-                val albumSuffix = if (albumsCreated > 0) tr(". Đã tạo $albumsCreated album.") else "."
+                val albumSuffix = if (albumsCreated > 0) tr(". Created $albumsCreated albums.") else "."
                 when {
                     cancelled -> uploadNotifications.finished(
                         UploadNotifications.Kind.PHOTOS,
-                        tr("Đã hủy tải lên Google Photos. Đã tải $uploaded tệp, lỗi $failed tệp."),
+                        tr("Google Photos upload canceled. Uploaded $uploaded files, $failed failed."),
                         success = false
                     )
                     fatal != null -> uploadNotifications.finished(
                         UploadNotifications.Kind.PHOTOS,
-                        tr("Không thể hoàn tất tải lên Google Photos. Đã tải $uploaded tệp, lỗi $failed tệp."),
+                        tr("Could not complete Google Photos upload. Uploaded $uploaded files, $failed failed."),
                         success = false
                     )
                     else -> uploadNotifications.finished(
                         UploadNotifications.Kind.PHOTOS,
-                        tr("Đã tải $uploaded tệp lên Google Photos") +
-                            (if (failed > 0) tr(", lỗi $failed tệp") else "") + albumSuffix,
+                        tr("Uploaded $uploaded files to Google Photos") +
+                            (if (failed > 0) tr(", $failed failed") else "") + albumSuffix,
                         success = failed == 0
                     )
                 }
@@ -938,7 +941,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure {
                     if (isBrowserRefreshCurrent(refreshTarget)) {
-                        browserError(refreshTarget, tr("Không thể kết nối S3. Kiểm tra quyền bucket và mạng rồi thử làm mới."))
+                        browserError(refreshTarget, tr("Unable to connect S3. Check bucket and network permissions and then try refreshing."))
                     }
                 }
         }
@@ -977,14 +980,14 @@ class MainActivity : ComponentActivity() {
                 if (isBrowserRefreshCurrent(refreshTarget)) {
                     serviceTokens.remove(account.id)
                     browserError(refreshTarget,
-                        tr("Không thể tải Drive của Service Account. Kiểm tra khóa, Drive API và quyền chia sẻ rồi thử làm mới."))
+                        tr("Unable to load Service Account Drive. Check the key, Drive API, and share permissions, then try refreshing."))
                 }
             }
         }
     }
 
     private fun connectS3(name: String, config: S3Config) {
-        if (!s3Available) return accountError(tr("Không thể mở kho tài khoản S3 trên thiết bị."))
+        if (!s3Available) return accountError(tr("Unable to open S3 account vault on device."))
         val account = S3Account(name = name.trim(), config = config)
         accountUi = accountUi.copy(busy = true, message = null)
         lifecycleScope.launch {
@@ -996,13 +999,13 @@ class MainActivity : ComponentActivity() {
                             s3Accounts = saved
                             refreshAccounts()
                             finishAdding(AccountEntry(AccountType.S3, account.id, account.name, config.bucket, endpointUrl = config.endpoint), files)
-                        }.onFailure { accountError(tr("Không thể lưu tài khoản S3.")) }
-                }.onFailure { accountError(tr("Không thể kết nối S3. Kiểm tra thông tin, quyền bucket và mạng.")) }
+                        }.onFailure { accountError(tr("Unable to save S3 account.")) }
+                }.onFailure { accountError(tr("Unable to connect S3. Check information, bucket and network permissions.")) }
         }
     }
 
     private fun importService(uri: Uri) {
-        if (!serviceAvailable) return accountError(tr("Không thể mở kho Service Account trên thiết bị."))
+        if (!serviceAvailable) return accountError(tr("Unable to open Service Account repository on the device."))
         accountUi = accountUi.copy(busy = true, message = null)
         lifecycleScope.launch {
             runCatching {
@@ -1013,11 +1016,11 @@ class MainActivity : ComponentActivity() {
                         while (true) {
                             val count = input.read(buffer)
                             if (count < 0) break
-                            require(output.size() + count <= ServiceAccountCredentials.MAX_JSON_BYTES) { tr("File JSON quá lớn.") }
+                            require(output.size() + count <= ServiceAccountCredentials.MAX_JSON_BYTES) { tr("JSON file is too large.") }
                             output.write(buffer, 0, count)
                         }
                         output.toString("UTF-8")
-                    } ?: throw IllegalArgumentException(tr("Không thể đọc file JSON đã chọn."))
+                    } ?: throw IllegalArgumentException(tr("Cannot read the selected JSON file."))
                     val credentials = ServiceAccountCredentials.parse(text)
                     val token = ServiceAccountApi.accessToken(credentials)
                     Triple(credentials, token, DriveApi.listFiles(token.value))
@@ -1030,10 +1033,10 @@ class MainActivity : ComponentActivity() {
                         serviceTokens[credentials.id] = token
                         refreshAccounts()
                         finishAdding(accountUi.entries.first { it.type == AccountType.SERVICE && it.id == credentials.id }, files, token.value)
-                    }.onFailure { accountError(tr("Không thể lưu Service Account trên thiết bị.")) }
+                    }.onFailure { accountError(tr("Service Account cannot be saved on the device.")) }
             }.onFailure {
-                accountError(if (it is IllegalArgumentException) it.message ?: tr("File JSON không hợp lệ.")
-                    else tr("Không thể kết nối Service Account. Kiểm tra khóa JSON, Drive API và mạng, rồi nhập lại file."))
+                accountError(if (it is IllegalArgumentException) it.message ?: tr("Invalid JSON file.")
+                    else tr("Unable to connect Service Account. Check the JSON key, Drive API and network, then re-import the file."))
             }
         }
     }
@@ -1079,7 +1082,7 @@ class MainActivity : ComponentActivity() {
             selection.edit().remove("name:${entry.key}").remove("avatar:${entry.key}").remove("profile:${entry.key}").apply()
             if (accountUi.active?.key == entry.key) signOut()
             refreshAccounts()
-        }.onFailure { accountError(tr("Không thể xóa tài khoản đã lưu.")) }
+        }.onFailure { accountError(tr("Saved accounts cannot be deleted.")) }
     }
 
     private fun downloadFile(file: DriveFile) {
@@ -1088,7 +1091,7 @@ class MainActivity : ComponentActivity() {
         val service = serviceAccounts.find { it.id == account.id }
         val config = s3Accounts.accounts.find { it.id == account.id }?.config
         val start: () -> Unit = {
-            Toast.makeText(this, tr("Đang thêm vào danh sách tải xuống…"), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Adding to the download queue…"), Toast.LENGTH_SHORT).show()
             lifecycleScope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.IO) {
@@ -1112,8 +1115,8 @@ class MainActivity : ComponentActivity() {
                 }
                 result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
                 Toast.makeText(this@MainActivity,
-                    if (result.isSuccess) tr("Đã giao ${result.getOrNull()} tệp cho trình tải xuống Android.")
-                    else tr("Không thể thêm hết tệp vào danh sách tải. Các tệp đã thêm vẫn tiếp tục tải trên Android."),
+                    if (result.isSuccess) tr("Sent ${result.getOrNull()} files to Android download manager.")
+                    else tr("Unable to add all files to the download list. Added files continue to load on Android."),
                     Toast.LENGTH_LONG).show()
             }
         }
@@ -1127,18 +1130,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun uploadLocalFile(file: DriveFile, done: (Result<Unit>) -> Unit) {
+        val root = runCatching { android.os.Environment.getExternalStorageDirectory().canonicalPath }
+            .getOrElse { android.os.Environment.getExternalStorageDirectory().absolutePath }
+        transferLocalFileToCloud(file, root, model.path.lastOrNull()?.id, false, done)
+    }
+
+    private fun transferLocalFileToCloud(
+        file: DriveFile,
+        sourceRoot: String,
+        parentId: String?,
+        move: Boolean,
+        done: (Result<Unit>) -> Unit
+    ) {
         val account = accountUi.active
         if (account == null) {
-            done(Result.failure(IllegalStateException(tr("Hãy thêm hoặc chọn một tài khoản trước khi tải lên."))))
+            done(Result.failure(IllegalStateException(tr("Add or select an account before uploading."))))
             return
         }
         val config = s3Accounts.accounts.firstOrNull { it.id == account.id }?.config
         val service = serviceAccounts.firstOrNull { it.id == account.id }
         val existingToken = model.token
-        val parent = model.path.lastOrNull()?.id
         if (account.type == AccountType.GOOGLE && existingToken == null) {
             authorize()
-            done(Result.failure(IllegalStateException(tr("Hãy cấp quyền Drive trước khi tải lên."))))
+            done(Result.failure(IllegalStateException(tr("Please grant Drive permission before uploading."))))
             return
         }
         ensureNotificationPermission()
@@ -1148,7 +1162,7 @@ class MainActivity : ComponentActivity() {
             var completed = 0
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    val access = com.starfall.gsadrive.data.LocalFileAccess(android.os.Environment.getExternalStorageDirectory())
+                    val access = com.starfall.gsadrive.data.LocalFileAccess(File(sourceRoot))
                     val source = access.checked(file.id)
                     val files = access.tree(file.id)
                     val token = if (account.type == AccountType.SERVICE)
@@ -1156,7 +1170,7 @@ class MainActivity : ComponentActivity() {
                     val folders = mutableMapOf<String, String>()
                     for (local in files) {
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                        val destination = if (local == source) parent else folders.getValue(local.parentFile.path)
+                        val destination = if (local == source) parentId else folders.getValue(requireNotNull(local.parentFile).path)
                         if (local.isDirectory) {
                             folders[local.path] = if (account.type == AccountType.S3) {
                                 val key = destination.orEmpty() + local.name + "/"
@@ -1164,23 +1178,34 @@ class MainActivity : ComponentActivity() {
                                 key
                             } else DriveApi.createFolder(requireNotNull(token), local.name, destination)
                         } else {
-                            notifications.running(UploadNotifications.Kind.DRIVE, currentName = local.name,
-                                completed = completed, total = null)
+                            notifications.running(
+                                UploadNotifications.Kind.DRIVE,
+                                currentName = local.name, completed = completed, total = null
+                            )
                             val mime = android.webkit.MimeTypeMap.getSingleton()
                                 .getMimeTypeFromExtension(local.extension.lowercase()) ?: "application/octet-stream"
-                            if (account.type == AccountType.S3)
+                            if (account.type == AccountType.S3) {
                                 S3Api.upload(requireNotNull(config), destination.orEmpty() + local.name, mime, local)
-                            else local.inputStream().use { DriveApi.upload(requireNotNull(token), local.name, mime, it, destination) }
+                            } else {
+                                local.inputStream().use {
+                                    DriveApi.upload(requireNotNull(token), local.name, mime, it, destination)
+                                }
+                            }
                             completed++
                         }
                     }
+                    if (move) access.delete(file.id)
                 }
             }
             withContext(kotlinx.coroutines.NonCancellable) {
                 withContext(Dispatchers.IO) { listingCache.clear(account.key) }
-                notifications.finished(UploadNotifications.Kind.DRIVE,
-                    if (result.isSuccess) tr("Đã tải lên $completed tệp.") else tr("Không thể hoàn tất tải lên."),
-                    success = result.isSuccess)
+                notifications.finished(
+                    UploadNotifications.Kind.DRIVE,
+                    if (result.isSuccess) {
+                        if (move) tr("Moved $completed files.") else tr("Copied $completed files.")
+                    } else tr("File transfer could not be completed."),
+                    success = result.isSuccess
+                )
                 done(result)
                 if (accountUi.active?.key == account.key) refresh(forceNetwork = true)
             }
@@ -1190,7 +1215,7 @@ class MainActivity : ComponentActivity() {
     private fun pickUpload(folder: Boolean) {
         val account = accountUi.active
         if (account == null) {
-            Toast.makeText(this, tr("Hãy thêm hoặc chọn một tài khoản trước khi tải lên."), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Add or select an account before uploading."), Toast.LENGTH_SHORT).show()
             return
         }
         pendingUpload = account.key
@@ -1226,7 +1251,7 @@ class MainActivity : ComponentActivity() {
                                 S3Api.createFolder(requireNotNull(s3), key)
                                 key
                             } else DriveApi.createFolder(
-                                requireNotNull(token) { tr("Hãy cấp quyền Drive trước khi tải lên.") },
+                                requireNotNull(token) { tr("Please grant Drive permission before uploading.") },
                                 name,
                                 destination
                             )
@@ -1249,7 +1274,7 @@ class MainActivity : ComponentActivity() {
                                         temporary.delete()
                                     }
                                 } else DriveApi.upload(requireNotNull(token), name, mime, input, destination)
-                            } ?: kotlin.error(tr("Không đọc được tệp $name."))
+                            } ?: kotlin.error(tr("Unable to read file $name."))
                             completed++
                             uploadNotifications.running(
                                 UploadNotifications.Kind.DRIVE,
@@ -1265,19 +1290,22 @@ class MainActivity : ComponentActivity() {
             when {
                 cancelled -> uploadNotifications.finished(
                     UploadNotifications.Kind.DRIVE,
-                    tr("Đã hủy tải lên. Đã hoàn tất $completed tệp."),
+                    tr("Upload canceled. Completed $completed files."),
                     success = false
                 )
                 result.isSuccess -> uploadNotifications.finished(
                     UploadNotifications.Kind.DRIVE,
-                    tr("Đã tải lên $completed tệp."),
+                    tr("Uploaded $completed files."),
                     success = true
                 )
-                else -> uploadNotifications.finished(
-                    UploadNotifications.Kind.DRIVE,
-                    tr("Tải lên bị dừng tại ${currentName ?: tr("một tệp")}. Đã hoàn tất $completed tệp."),
-                    success = false
-                )
+                else -> {
+                    val stoppedAt = currentName ?: tr("a file")
+                    uploadNotifications.finished(
+                        UploadNotifications.Kind.DRIVE,
+                        tr("Upload stopped at $stoppedAt. Completed $completed files."),
+                        success = false
+                    )
+                }
             }
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { listingCache.clear(account.key) }
             if (cancelled) throw result.exceptionOrNull() as CancellationException
@@ -1290,17 +1318,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun restoreFile(file: DriveFile) {
+    private fun restoreTrashFiles(files: List<DriveFile>) {
+        mutateTrashFiles(
+            files = files,
+            failureMessage = tr("The selected items cannot be restored. Check permissions and connection."),
+            action = { token, file -> DriveApi.restore(token, file.id) }
+        )
+    }
+
+    private fun deleteTrashFiles(files: List<DriveFile>) {
+        mutateTrashFiles(
+            files = files,
+            failureMessage = tr("Selected items cannot be permanently deleted."),
+            action = { token, file -> DriveApi.deletePermanently(token, file.id) }
+        )
+    }
+
+    private fun mutateTrashFiles(
+        files: List<DriveFile>,
+        failureMessage: String,
+        action: (String, DriveFile) -> Unit
+    ) {
         val token = model.token ?: return
         val account = accountUi.active ?: return
+        val unique = files.distinctBy { it.id }
+        if (unique.isEmpty()) return
         val request = ++generation
         model = model.copy(loading = true, message = null)
         lifecycleScope.launch {
-            runCatching { withContext(Dispatchers.IO) {
-                DriveApi.restore(token, file.id)
-                listingCache.clear(account.key)
-            } }.onSuccess { if (request == generation) refresh(forceNetwork = true) }
-                .onFailure { if (request == generation) error(tr("Không thể khôi phục tệp. Kiểm tra quyền và kết nối.")) }
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    unique.forEach { file -> action(token, file) }
+                    listingCache.clear(account.key)
+                }
+            }
+            if (request != generation) return@launch
+            result.onSuccess { refresh(forceNetwork = true) }
+                .onFailure { model = model.copy(loading = false, message = failureMessage) }
         }
     }
 
@@ -1313,16 +1367,16 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             runCatching { withContext(Dispatchers.IO) { DriveApi.createFolder(token, name.trim(), parentId); accountUi.active?.key?.let { listingCache.clear(it) } } }
                 .onSuccess { if (request == generation) refresh(forceNetwork = true) }
-                .onFailure { if (request == generation) error(tr("Không thể tạo thư mục.")) }
+                .onFailure { if (request == generation) error(tr("Unable to create directory.")) }
         }
     }
 
     private fun shareFile(file: DriveFile, email: String, role: String, done: (Result<Unit>) -> Unit) {
         val token = model.token
-        if (token == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        if (token == null) return done(Result.failure(IllegalStateException(tr("Need to grant Drive permission first."))))
         lifecycleScope.launch {
             val result = runCatching { withContext(Dispatchers.IO) { DriveApi.share(token, file.id, email.trim(), role) } }
-            if (result.isSuccess) Toast.makeText(this@MainActivity, tr("Đã chia sẻ ${file.name}."), Toast.LENGTH_SHORT).show()
+            if (result.isSuccess) Toast.makeText(this@MainActivity, tr("Shared ${file.name}."), Toast.LENGTH_SHORT).show()
             done(result)
         }
     }
@@ -1330,7 +1384,7 @@ class MainActivity : ComponentActivity() {
     private fun renameFile(file: DriveFile, newName: String, done: (Result<Unit>) -> Unit) {
         val token = model.token
         val accountKey = accountUi.active?.key
-        if (token == null || accountKey == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        if (token == null || accountKey == null) return done(Result.failure(IllegalStateException(tr("Need to grant Drive permission first."))))
         lifecycleScope.launch {
             val result = runCatching { withContext(Dispatchers.IO) {
                 DriveApi.rename(token, file.id, newName.trim())
@@ -1343,7 +1397,7 @@ class MainActivity : ComponentActivity() {
 
     private fun loadPermissions(file: DriveFile, done: (Result<List<DrivePermission>>) -> Unit) {
         val token = model.token
-        if (token == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        if (token == null) return done(Result.failure(IllegalStateException(tr("Need to grant Drive permission first."))))
         lifecycleScope.launch {
             done(runCatching { withContext(Dispatchers.IO) { DriveApi.listPermissions(token, file.id) } })
         }
@@ -1351,19 +1405,147 @@ class MainActivity : ComponentActivity() {
 
     private fun removePermission(file: DriveFile, permission: DrivePermission, done: (Result<Unit>) -> Unit) {
         val token = model.token
-        if (token == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        if (token == null) return done(Result.failure(IllegalStateException(tr("Need to grant Drive permission first."))))
         lifecycleScope.launch {
             done(runCatching { withContext(Dispatchers.IO) { DriveApi.deletePermission(token, file.id, permission.id) } })
         }
     }
 
     private fun loadMoveFolders(parentId: String?, done: (Result<List<DriveFile>>) -> Unit) {
-        val token = model.token
-        if (token == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        val account = accountUi.active
+            ?: return done(Result.failure(IllegalStateException(tr("Add or select an account before uploading."))))
+        val config = s3Accounts.accounts.firstOrNull { it.id == account.id }?.config
+        val service = serviceAccounts.firstOrNull { it.id == account.id }
+        val existingToken = model.token
         lifecycleScope.launch {
-            done(runCatching { withContext(Dispatchers.IO) {
-                DriveApi.listFiles(token, parentId = parentId).filter { it.isFolder }
-            } })
+            done(runCatching {
+                withContext(Dispatchers.IO) {
+                    when (account.type) {
+                        AccountType.S3 -> S3Api.list(requireNotNull(config), parentId.orEmpty()).filter { it.isFolder }
+                        AccountType.SERVICE -> {
+                            val token = ServiceAccountApi.accessToken(requireNotNull(service)).value
+                            DriveApi.listFiles(token, parentId = parentId).filter { it.isFolder }
+                        }
+                        AccountType.GOOGLE -> DriveApi.listFiles(
+                            requireNotNull(existingToken) { tr("Need to grant Drive permission first.") },
+                            parentId = parentId
+                        ).filter { it.isFolder }
+                    }
+                }
+            })
+        }
+    }
+
+    private fun copyFile(file: DriveFile, destinationId: String, done: (Result<Unit>) -> Unit) {
+        val account = accountUi.active
+        val accountKey = account?.key
+        if (account == null || accountKey == null) {
+            done(Result.failure(IllegalStateException(tr("Add or select an account before uploading."))))
+            return
+        }
+        if (account.type == AccountType.S3) {
+            done(Result.failure(UnsupportedOperationException(tr("Copying within the same S3 account is not yet supported."))))
+            return
+        }
+        val service = serviceAccounts.firstOrNull { it.id == account.id }
+        val existingToken = model.token
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val token = if (account.type == AccountType.SERVICE)
+                        ServiceAccountApi.accessToken(requireNotNull(service)).value
+                    else requireNotNull(existingToken) { tr("Need to grant Drive permission first.") }
+                    fun copyTree(source: DriveFile, parent: String) {
+                        if (!source.isFolder) {
+                            DriveApi.copy(token, source, parent)
+                            return
+                        }
+                        val created = DriveApi.createFolder(token, source.name, parent)
+                        DriveApi.listFiles(token, parentId = source.id).forEach { child -> copyTree(child, created) }
+                    }
+                    copyTree(file, destinationId)
+                    listingCache.clear(accountKey)
+                }
+            }
+            done(result)
+            if (result.isSuccess && accountUi.active?.key == accountKey) refresh(forceNetwork = true)
+        }
+    }
+
+    private fun transferCloudToLocal(
+        file: DriveFile,
+        localRoot: String,
+        destinationPath: String,
+        move: Boolean,
+        done: (Result<Unit>) -> Unit
+    ) {
+        val account = accountUi.active
+        val accountKey = account?.key
+        if (account == null || accountKey == null) {
+            done(Result.failure(IllegalStateException(tr("Add or select an account before transferring files."))))
+            return
+        }
+        val config = s3Accounts.accounts.firstOrNull { it.id == account.id }?.config
+        val service = serviceAccounts.firstOrNull { it.id == account.id }
+        val existingToken = model.token
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val access = com.starfall.gsadrive.data.LocalFileAccess(File(localRoot))
+                    access.list(destinationPath) // Validate that the destination is inside the selected system root.
+                    val destination = File(destinationPath).canonicalFile
+                    fun safeLocalName(name: String): String {
+                        require(
+                            name.isNotBlank() && name !in setOf(".", "..") &&
+                                name.none { it == '/' || it == '\\' || it.isISOControl() }
+                        ) { tr("Invalid file name for System Files.") }
+                        return name
+                    }
+                    val target = File(destination, safeLocalName(file.name))
+                    require(!target.exists()) { tr("The destination already has an item with the same name.") }
+                    val staging = File(destination, ".manydrive-${java.util.UUID.randomUUID()}")
+                    val token = when (account.type) {
+                        AccountType.GOOGLE -> requireNotNull(existingToken) { tr("Need to grant Drive permission first.") }
+                        AccountType.SERVICE -> ServiceAccountApi.accessToken(requireNotNull(service)).value
+                        AccountType.S3 -> null
+                    }
+                    suspend fun children(folder: DriveFile): List<DriveFile> = when (account.type) {
+                        AccountType.S3 -> S3Api.list(requireNotNull(config), folder.id)
+                        AccountType.GOOGLE, AccountType.SERVICE -> DriveApi.listFiles(requireNotNull(token), parentId = folder.id)
+                    }
+                    suspend fun copyTree(source: DriveFile, output: File) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        if (source.isFolder) {
+                            check(output.mkdirs()) { tr("Unable to create destination folder.") }
+                            children(source).forEach { child ->
+                                copyTree(child, File(output, safeLocalName(child.name)))
+                            }
+                        } else {
+                            output.parentFile?.mkdirs()
+                            when (account.type) {
+                                AccountType.S3 -> S3Api.downloadTo(requireNotNull(config), source.id, output)
+                                AccountType.GOOGLE, AccountType.SERVICE -> DriveApi.downloadTo(requireNotNull(token), source.id, output)
+                            }
+                        }
+                    }
+                    try {
+                        copyTree(file, staging)
+                        check(staging.renameTo(target)) { tr("Unable to complete copy to File System.") }
+                    } catch (failure: Throwable) {
+                        staging.deleteRecursively()
+                        throw failure
+                    }
+                    if (move) {
+                        when (account.type) {
+                            AccountType.S3 -> S3Api.delete(requireNotNull(config), file)
+                            AccountType.GOOGLE, AccountType.SERVICE -> DriveApi.moveToTrash(requireNotNull(token), file.id)
+                        }
+                        listingCache.clear(accountKey)
+                    }
+                }
+            }
+            done(result)
+            if (move && result.isSuccess && accountUi.active?.key == accountKey) refresh(forceNetwork = true)
         }
     }
 
@@ -1373,7 +1555,7 @@ class MainActivity : ComponentActivity() {
     private fun moveFiles(files: List<DriveFile>, destinationId: String, done: (Result<Unit>) -> Unit) {
         val token = model.token
         val accountKey = accountUi.active?.key
-        if (token == null || accountKey == null) return done(Result.failure(IllegalStateException(tr("Cần cấp quyền Drive trước."))))
+        if (token == null || accountKey == null) return done(Result.failure(IllegalStateException(tr("Need to grant Drive permission first."))))
         val unique = files.distinctBy { it.id }
         if (unique.isEmpty()) return done(Result.success(Unit))
         lifecycleScope.launch {
@@ -1390,7 +1572,7 @@ class MainActivity : ComponentActivity() {
                 listingCache.clear(accountKey)
                 if (failed == 0) Result.success(Unit)
                 else Result.failure(IllegalStateException(
-                    tr("Không thể di chuyển $failed/${unique.size} mục."),
+                    tr("Unable to move $failed/${unique.size} items."),
                     firstFailure
                 ))
             }
@@ -1423,7 +1605,7 @@ class MainActivity : ComponentActivity() {
             }
             if (request == generation) {
                 if (failures > 0) {
-                    model = model.copy(loading = false, message = tr("Không thể chuyển $failures/${unique.size} mục vào thùng rác."))
+                    model = model.copy(loading = false, message = tr("Could not move $failures/${unique.size} items to trash."))
                 } else {
                     refresh(forceNetwork = true)
                 }
@@ -1458,7 +1640,7 @@ class MainActivity : ComponentActivity() {
             if (request == generation && accountUi.active?.key == account.key) {
                 // Refresh even after partial failure, since some objects may already be gone.
                 loadS3(completionMessage = if (failures == 0) null
-                    else tr("Không thể xóa một số mục S3. Kiểm tra quyền xóa và thử lại.") + " ($failures/${unique.size})")
+                    else tr("Some S3 items could not be deleted. Check delete permissions and try again.") + " ($failures/${unique.size})")
             }
         }
     }
@@ -1505,7 +1687,7 @@ class MainActivity : ComponentActivity() {
         browserTabModels.clear()
         browserRefreshIds.clear()
         tab = 0
-        model = Model(message = tr("Đã đăng xuất."))
+        model = Model(message = tr("Signed out."))
     }
 
     private fun accountError(message: String) { accountUi = accountUi.copy(busy = false, message = message) }

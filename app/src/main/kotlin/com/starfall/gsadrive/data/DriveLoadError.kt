@@ -18,22 +18,22 @@ internal fun driveLoadError(failure: Throwable): String {
             .distinct()
         val detail = when {
             reasons.any { it in setOf("accessNotConfigured", "serviceDisabled") } ->
-                tr("Google Drive API chưa được bật cho dự án của ứng dụng.")
+                tr("The Google Drive API is not enabled for your app's project.")
             reasons.any { it in setOf("rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded") } || http.statusCode == 429 ->
-                tr("Google Drive đang giới hạn số lượt truy cập. Hãy thử lại sau.")
-            http.statusCode == 401 -> tr("Google từ chối access token. Hãy cấp quyền lại cho tài khoản.")
-            http.statusCode == 403 -> tr("Google từ chối quyền truy cập Drive. Cần kiểm tra quyền ứng dụng và chính sách tài khoản.")
-            http.statusCode == 404 -> tr("Thư mục không còn tồn tại hoặc tài khoản không có quyền truy cập.")
-            http.statusCode >= 500 -> tr("Máy chủ Google Drive đang gặp lỗi. Hãy thử lại sau.")
-            else -> tr("Yêu cầu tải danh sách tệp Drive thất bại.")
+                tr("Google Drive is limiting the number of visits. Please try again later.")
+            http.statusCode == 401 -> tr("Google refuses access token. Please re-authorize your account.")
+            http.statusCode == 403 -> tr("Google denies access to Drive. Need to check app permissions and account policies.")
+            http.statusCode == 404 -> tr("The folder no longer exists or the account doesn't have access rights.")
+            http.statusCode >= 500 -> tr("The Google Drive server is experiencing an error. Please try again later.")
+            else -> tr("Request to download Drive file list failed.")
         }
         return "$detail (HTTP ${http.statusCode}${if (reasons.isEmpty()) "" else ": ${reasons.joinToString() }"})"
     }
     return when {
-        causes.any { it is UnknownHostException } -> tr("Không phân giải được địa chỉ Google Drive. Hãy kiểm tra kết nối mạng hoặc DNS.")
-        causes.any { it is SocketTimeoutException } -> tr("Kết nối Google Drive quá thời gian chờ. Hãy thử làm mới.")
-        causes.any { it is SSLException } -> tr("Không thiết lập được kết nối bảo mật tới Google Drive.")
-        causes.any { it is LinkageError } -> tr("Thư viện Google gặp lỗi tương thích (${causes.first { it is LinkageError }.javaClass.simpleName}).")
-        else -> tr("Không thể tải danh sách tệp Drive (${failure.javaClass.simpleName}).")
+        causes.any { it is UnknownHostException } -> tr("Google Drive address cannot be resolved. Please check your network connection or DNS.")
+        causes.any { it is SocketTimeoutException } -> tr("Google Drive connection timed out. Let's try something new.")
+        causes.any { it is SSLException } -> tr("Unable to establish a secure connection to Google Drive.")
+        causes.any { it is LinkageError } -> tr("Google library compatibility error (${causes.first { it is LinkageError }.javaClass.simpleName}).")
+        else -> tr("Unable to load Drive file list (${failure.javaClass.simpleName}).")
     }
 }

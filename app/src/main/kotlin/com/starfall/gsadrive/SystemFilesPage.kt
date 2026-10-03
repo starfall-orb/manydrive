@@ -28,6 +28,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.starfall.gsadrive.data.DriveFile
 import com.starfall.gsadrive.data.LocalFileAccess
+import com.starfall.gsadrive.ui.FolderZoomTransition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -52,7 +53,14 @@ internal fun SystemFilesPage(
     openFile: (DriveFile, List<DriveFile>) -> Unit,
     handleBack: Boolean,
     cloudDestination: String? = null,
-    uploadLocal: (DriveFile, (Result<Unit>) -> Unit) -> Unit = { _, done -> done(Result.failure(IllegalStateException("No cloud account"))) }
+    uploadLocal: (DriveFile, (Result<Unit>) -> Unit) -> Unit = { _, done -> done(Result.failure(IllegalStateException("No cloud account"))) },
+    cloudAccount: AccountEntry? = null,
+    loadCloudFolders: (String?, (Result<List<DriveFile>>) -> Unit) -> Unit = { _, done ->
+        done(Result.failure(IllegalStateException("No cloud account")))
+    },
+    transferLocalToCloud: (DriveFile, String, String?, Boolean, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, done ->
+        done(Result.failure(IllegalStateException("No cloud account")))
+    }
 ) {
     val context = LocalContext.current
     val access = remember(rootPath) { LocalFileAccess(File(rootPath)) }
@@ -99,7 +107,7 @@ internal fun SystemFilesPage(
                 try {
                     settingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                 } catch (_: android.content.ActivityNotFoundException) {
-                    permissionError = tr("Không thể mở cài đặt quyền truy cập bộ nhớ.")
+                    permissionError = tr("Could not open storage access settings.")
                 }
             }
         } else {
@@ -180,7 +188,7 @@ internal fun SystemFilesPage(
         }
         model = result.fold(
             onSuccess = { Model(files = it) },
-            onFailure = { Model(message = tr("Không thể đọc thư mục này. Kiểm tra quyền truy cập.")) }
+            onFailure = { Model(message = tr("Cannot read this folder. Check access permissions.")) }
         )
     }
 
@@ -202,27 +210,35 @@ internal fun SystemFilesPage(
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
             ) {
                 Icon(Icons.Outlined.Storage, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                Text(permissionError ?: tr("Cho phép truy cập bộ nhớ để duyệt tệp trên thiết bị."))
-                FilledTonalButton(onClick = ::requestAccess) { Text(tr("Cấp quyền truy cập")) }
+                Text(permissionError ?: tr("Allow storage access to browse files on this device."))
+                FilledTonalButton(onClick = ::requestAccess) { Text(tr("Grant access")) }
             }
         } else {
             if (model.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            FileBrowserPage(
-                model,
-                PaddingValues(0.dp),
-                account = null,
-                shared = false,
-                query = query,
-                authorize = {},
-                openFolder = { onDirectoryChange(it.id) },
-                openFile = openFile,
-                browserKey = "local:$rootPath:$directory",
-                showEmptyMessage = true,
-                localMenu = { actionFile = it },
-                toolbarAction = {
+            val directoryDepth = remember(directory) {
+                File(directory).absolutePath.split(File.separatorChar).count { it.isNotEmpty() }
+            }
+            FolderZoomTransition(
+                key = directory,
+                depth = directoryDepth,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                FileBrowserPage(
+                    model,
+                    PaddingValues(0.dp),
+                    account = null,
+                    shared = false,
+                    query = query,
+                    authorize = {},
+                    openFolder = { onDirectoryChange(it.id) },
+                    openFile = openFile,
+                    browserKey = "local:$rootPath:$directory",
+                    showEmptyMessage = true,
+                    localMenu = { actionFile = it },
+                    toolbarAction = {
                     Box {
                         IconButton(onClick = { storageMenu = true }) {
-                            Icon(Icons.Outlined.Storage, tr("Chọn ổ đĩa"))
+                            Icon(Icons.Outlined.Storage, tr("Choose storage"))
                         }
                         DropdownMenu(
                             expanded = storageMenu,
@@ -253,7 +269,8 @@ internal fun SystemFilesPage(
                         }
                     }
                 }
-            )
+                )
+            }
         }
     }
 
@@ -263,6 +280,11 @@ internal fun SystemFilesPage(
             access,
             cloudDestination,
             uploadLocal,
+            cloudAccount = cloudAccount,
+            loadCloudFolders = loadCloudFolders,
+            transferToCloud = { selected, parentId, move, done ->
+                transferLocalToCloud(selected, rootPath, parentId, move, done)
+            },
             onChanged = onRefresh,
             onDismiss = { actionFile = null }
         )
@@ -285,7 +307,7 @@ private fun systemStorageLocations(context: android.content.Context): List<Syste
     result[primary] = SystemStorageLocation("sdcard/", primary)
 
     val appFiles = canonical(context.getExternalFilesDir(null) ?: context.filesDir)
-    result[appFiles] = SystemStorageLocation(tr("Thư mục ứng dụng"), appFiles)
+    result[appFiles] = SystemStorageLocation(tr("App folder"), appFiles)
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         val manager = context.getSystemService(StorageManager::class.java)
@@ -296,7 +318,7 @@ private fun systemStorageLocations(context: android.content.Context): List<Syste
             if (path == primary || path == appFiles) return@forEach
             val description = runCatching { volume.getDescription(context) }.getOrNull().orEmpty()
             val label = description.ifBlank {
-                if (volume.isRemovable) tr("Bộ nhớ ngoài") else tr("Ổ lưu trữ")
+                if (volume.isRemovable) tr("External storage") else tr("Storage volume")
             }
             result[path] = SystemStorageLocation(label, path)
         }
@@ -308,7 +330,7 @@ private fun systemStorageLocations(context: android.content.Context): List<Syste
             val volumeRoot = root ?: return@forEachIndexed
             val path = canonical(volumeRoot)
             if (path != primary && path != appFiles) {
-                result[path] = SystemStorageLocation(tr("Bộ nhớ ngoài") + " ${index + 1}", path)
+                result[path] = SystemStorageLocation(tr("External storage") + " ${index + 1}", path)
             }
         }
     }

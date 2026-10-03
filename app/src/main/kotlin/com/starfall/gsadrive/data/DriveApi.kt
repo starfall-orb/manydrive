@@ -25,9 +25,9 @@ data class DriveFile(
     val photosMediaId: String? = null
 ) {
     val isFolder get() = mimeType == "application/vnd.google-apps.folder"
-    val description get() = if (isFolder) tr("Thư mục") else {
-        val time = modifiedTime?.replace("T", " ")?.substringBefore(".") ?: tr("gần đây")
-        tr("Đã sửa đổi $time")
+    val description get() = if (isFolder) tr("Folder") else {
+        val time = modifiedTime?.replace("T", " ")?.substringBefore(".") ?: tr("recently")
+        tr("Modified $time")
     }
 }
 
@@ -101,6 +101,10 @@ object DriveApi {
         client(accessToken).files().update(fileId, GoogleFile().setTrashed(false)).setSupportsAllDrives(true).execute()
     }
 
+    fun deletePermanently(accessToken: String, fileId: String) {
+        client(accessToken).files().delete(fileId).setSupportsAllDrives(true).execute()
+    }
+
     fun move(accessToken: String, file: DriveFile, newParentId: String) {
         client(accessToken).files().update(file.id, GoogleFile()).setSupportsAllDrives(true)
             .setAddParents(newParentId).apply {
@@ -168,7 +172,7 @@ object DriveApi {
     private fun escapeQuery(value: String) = value.replace("\\", "\\\\").replace("'", "\\'")
 
     private fun GoogleFile.toDriveFile() = DriveFile(
-        id = id, name = name ?: tr("Không tên"), mimeType = mimeType.orEmpty(),
+        id = id, name = name ?: tr("Untitled"), mimeType = mimeType.orEmpty(),
         modifiedTime = modifiedTime?.toStringRfc3339(), size = getSize(),
         thumbnailUrl = thumbnailLink, webViewUrl = webViewLink, parents = parents.orEmpty(),
         trashed = trashed == true, sharedWithMeTime = sharedWithMeTime?.toStringRfc3339()
