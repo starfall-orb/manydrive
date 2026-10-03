@@ -9,6 +9,10 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -272,10 +276,73 @@ private class ManyDriveArtworkBitmapLoader : BitmapLoader {
         val mediaId = uri.getQueryParameter("id") ?: throw IOException(tr("Artwork missing media id"))
         val source = PlaybackSourceRegistry.get(mediaId) ?: throw IOException(tr("No artwork source found"))
         val thumbnailUrl = source.file.thumbnailUrl ?: throw IOException(tr("Media does not have thumbnails"))
-        ThumbnailRepository.load(thumbnailUrl, source.accessToken)
+        ThumbnailRepository.load(notificationArtworkUrl(thumbnailUrl), source.accessToken)
     })
 
     fun release() { executor.shutdownNow() }
+}
+
+private fun notificationArtworkUrl(url: String): String = when {
+    Regex("=w\\d+-h\\d+.*$").containsMatchIn(url) ->
+        url.replace(Regex("=w\\d+-h\\d+.*$"), "=w1024-h1024")
+    Regex("=s\\d+.*$").containsMatchIn(url) ->
+        url.replace(Regex("=s\\d+.*$"), "=s1024")
+    else -> url
+}
+
+/**
+ * Android's media template draws largeIcon in a square slot. Keep the source aspect ratio and
+ * letterbox it instead of letting SystemUI stretch/crop a portrait or landscape thumbnail.
+ */
+private fun notificationLargeIcon(source: Bitmap, size: Int = 384): Bitmap {
+    if (source.width <= 0 || source.height <= 0) return source
+    val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val scale = minOf(size.toFloat() / source.width, size.toFloat() / source.height)
+    val width = source.width * scale
+    val height = source.height * scale
+    val left = (size - width) / 2f
+    val top = (size - height) / 2f
+    Canvas(output).drawBitmap(
+        source,
+        null,
+        RectF(left, top, left + width, top + height),
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    )
+    return output
+}
+
+/** A muted artwork-derived tint for Android's native colorized MediaStyle background. */
+private fun notificationArtworkColor(source: Bitmap): Int {
+    if (source.width <= 0 || source.height <= 0) return Color.DKGRAY
+    val xStep = maxOf(1, source.width / 24)
+    val yStep = maxOf(1, source.height / 24)
+    var red = 0L
+    var green = 0L
+    var blue = 0L
+    var weight = 0L
+    var y = 0
+    while (y < source.height) {
+        var x = 0
+        while (x < source.width) {
+            val color = source.getPixel(x, y)
+            val alpha = Color.alpha(color)
+            if (alpha > 32) {
+                red += Color.red(color).toLong() * alpha
+                green += Color.green(color).toLong() * alpha
+                blue += Color.blue(color).toLong() * alpha
+                weight += alpha
+            }
+            x += xStep
+        }
+        y += yStep
+    }
+    if (weight == 0L) return Color.DKGRAY
+    // Keep enough contrast for the native white media controls.
+    return Color.rgb(
+        ((red / weight) * 0.58f).toInt().coerceIn(0, 255),
+        ((green / weight) * 0.58f).toInt().coerceIn(0, 255),
+        ((blue / weight) * 0.58f).toInt().coerceIn(0, 255)
+    )
 }
 
 @OptIn(UnstableApi::class)
@@ -333,13 +400,27 @@ private class FixedTransportNotificationProvider(context: Context) : MediaNotifi
             ).build()
         }
 
-        val rebuilt = Notification.Builder.recoverBuilder(appContext, base.notification)
+        val builder = Notification.Builder.recoverBuilder(appContext, base.notification)
             .setActions(
                 action(previous, player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)),
                 action(playPause, player.isCommandAvailable(Player.COMMAND_PLAY_PAUSE)),
                 action(next, player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
             )
-            .build()
+
+        val artwork = player.currentMediaItem?.mediaId
+            ?.let(PlaybackSourceRegistry::get)
+            ?.file?.thumbnailUrl
+            ?.let(::notificationArtworkUrl)
+            ?.let(ThumbnailRepository::cached)
+        if (artwork != null) {
+            builder.setLargeIcon(notificationLargeIcon(artwork))
+                .setColor(notificationArtworkColor(artwork))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                builder.setColorized(true)
+            }
+        }
+
+        val rebuilt = builder.build()
         return MediaNotification(base.notificationId, rebuilt)
     }
 

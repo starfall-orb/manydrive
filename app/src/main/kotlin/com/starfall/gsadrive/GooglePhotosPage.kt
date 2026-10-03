@@ -7,10 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,15 +50,14 @@ internal fun GooglePhotosPage(
     }
 
     Box(Modifier.fillMaxSize().padding(padding)) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+        val mosaicBlocks = remember(model.files) { buildPhotoMosaic(model.files) }
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(bottom = 8.dp)
         ) {
             model.message?.let { message ->
-                item(span = { GridItemSpan(3) }) {
+                item(key = "photos-error") {
                     com.starfall.gsadrive.ui.CopyableError(
                         message,
                         modifier = Modifier.padding(16.dp)
@@ -69,7 +66,7 @@ internal fun GooglePhotosPage(
             }
 
             if (!model.loading && model.message == null && model.files.isEmpty()) {
-                item(span = { GridItemSpan(3) }) {
+                item(key = "photos-empty") {
                     Box(
                         Modifier.fillMaxWidth().padding(32.dp),
                         contentAlignment = Alignment.Center
@@ -82,100 +79,98 @@ internal fun GooglePhotosPage(
                 }
             }
 
-            itemsIndexed(
-                items = model.files,
-                key = { _, file -> file.id },
-                span = { index, _ -> GridItemSpan(if (isFeaturedPhoto(index)) 3 else 1) }
-            ) { index, file ->
-                val featured = isFeaturedPhoto(index)
-                val selected = file.id in selectedIds
-                val shape = if (featured) RoundedCornerShape(22.dp) else RoundedCornerShape(3.dp)
-                val itemModifier = if (featured) {
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .aspectRatio(1.55f)
-                } else {
-                    Modifier.fillMaxWidth().aspectRatio(1f)
-                }
-
-                Box(
-                    itemModifier
-                        .clip(shape)
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .combinedClickable(
-                            onClick = {
-                                if (selectionMode) {
-                                    selectedIds = if (selected) selectedIds - file.id else selectedIds + file.id
-                                } else {
-                                    open(file, model.files)
-                                }
-                            },
-                            onLongClick = {
-                                selectedIds = selectedIds + file.id
-                                actionTarget = file
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val thumbnailUrl = remember(file.thumbnailUrl, featured) {
-                        photoThumbnailUrl(file.thumbnailUrl, featured)
-                    }
-                    val bitmap by produceState<android.graphics.Bitmap?>(null, thumbnailUrl) {
-                        value = withContext(Dispatchers.IO) {
-                            thumbnailUrl?.let { runCatching { ThumbnailRepository.load(it) }.getOrNull() }
-                        }
-                    }
-
-                    bitmap?.let {
-                        Image(
-                            it.asImageBitmap(),
-                            file.name,
-                            Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } ?: Icon(
-                        Icons.Outlined.Image,
-                        null,
-                        Modifier.size(if (featured) 42.dp else 28.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    if (file.mimeType.startsWith("video/")) {
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(if (featured) 14.dp else 7.dp),
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.58f),
-                            contentColor = Color.White
+            items(mosaicBlocks, key = { it.key }) { block ->
+                when (block.kind) {
+                    PhotoMosaicKind.ROW -> {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Icon(
-                                Icons.Outlined.PlayArrow,
-                                tr("Videos"),
-                                Modifier.padding(4.dp).size(if (featured) 24.dp else 18.dp)
-                            )
-                        }
-                    }
-
-                    if (selectionMode) {
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(if (featured) 14.dp else 7.dp)
-                                .size(if (featured) 32.dp else 28.dp),
-                            shape = CircleShape,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                                else Color.Black.copy(alpha = 0.22f),
-                            contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
-                            border = BorderStroke(2.dp, Color.White.copy(alpha = 0.9f))
-                        ) {
-                            if (selected) {
-                                Icon(
-                                    Icons.Outlined.Check,
-                                    tr("Selected"),
-                                    Modifier.padding(4.dp)
+                            block.files.forEach { file ->
+                                PhotoMosaicTile(
+                                    file = file,
+                                    allFiles = model.files,
+                                    selectionMode = selectionMode,
+                                    selected = file.id in selectedIds,
+                                    featured = false,
+                                    modifier = Modifier.weight(1f).aspectRatio(1f),
+                                    onOpen = open,
+                                    onToggleSelection = { selectedIds = togglePhotoSelection(selectedIds, file.id) },
+                                    onLongSelect = {
+                                        selectedIds = selectedIds + file.id
+                                        actionTarget = file
+                                    }
                                 )
+                            }
+                        }
+                    }
+
+                    PhotoMosaicKind.HERO_LEFT, PhotoMosaicKind.HERO_RIGHT -> {
+                        val hero = block.files.first()
+                        val side = block.files.drop(1)
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val spacing = 2.dp
+                            val smallWidth = (maxWidth - spacing * 2) / 3
+                            val clusterHeight = smallWidth * 3 + spacing * 2
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(spacing)
+                            ) {
+                                if (block.kind == PhotoMosaicKind.HERO_LEFT) {
+                                    PhotoMosaicTile(
+                                        file = hero,
+                                        allFiles = model.files,
+                                        selectionMode = selectionMode,
+                                        selected = hero.id in selectedIds,
+                                        featured = true,
+                                        modifier = Modifier.weight(2f).height(clusterHeight),
+                                        onOpen = open,
+                                        onToggleSelection = { selectedIds = togglePhotoSelection(selectedIds, hero.id) },
+                                        onLongSelect = {
+                                            selectedIds = selectedIds + hero.id
+                                            actionTarget = hero
+                                        }
+                                    )
+                                }
+
+                                Column(
+                                    Modifier.weight(1f).height(clusterHeight),
+                                    verticalArrangement = Arrangement.spacedBy(spacing)
+                                ) {
+                                    side.forEach { file ->
+                                        PhotoMosaicTile(
+                                            file = file,
+                                            allFiles = model.files,
+                                            selectionMode = selectionMode,
+                                            selected = file.id in selectedIds,
+                                            featured = false,
+                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                            onOpen = open,
+                                            onToggleSelection = { selectedIds = togglePhotoSelection(selectedIds, file.id) },
+                                            onLongSelect = {
+                                                selectedIds = selectedIds + file.id
+                                                actionTarget = file
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (block.kind == PhotoMosaicKind.HERO_RIGHT) {
+                                    PhotoMosaicTile(
+                                        file = hero,
+                                        allFiles = model.files,
+                                        selectionMode = selectionMode,
+                                        selected = hero.id in selectedIds,
+                                        featured = true,
+                                        modifier = Modifier.weight(2f).height(clusterHeight),
+                                        onOpen = open,
+                                        onToggleSelection = { selectedIds = togglePhotoSelection(selectedIds, hero.id) },
+                                        onLongSelect = {
+                                            selectedIds = selectedIds + hero.id
+                                            actionTarget = hero
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -244,11 +239,133 @@ internal fun GooglePhotosPage(
     }
 }
 
-private fun isFeaturedPhoto(index: Int): Boolean = index >= 6 && (index - 6) % 9 == 0
+private enum class PhotoMosaicKind { ROW, HERO_LEFT, HERO_RIGHT }
+
+private data class PhotoMosaicBlock(
+    val kind: PhotoMosaicKind,
+    val files: List<DriveFile>
+) {
+    val key: String = kind.name + ":" + files.joinToString("|") { it.id }
+}
+
+private fun buildPhotoMosaic(files: List<DriveFile>): List<PhotoMosaicBlock> {
+    if (files.isEmpty()) return emptyList()
+    val blocks = mutableListOf<PhotoMosaicBlock>()
+    var index = 0
+    var heroLeft = true
+    var phase = 0
+    while (index < files.size) {
+        val remaining = files.size - index
+        val wantsHero = phase % 2 == 1 && remaining >= 4
+        if (wantsHero) {
+            blocks += PhotoMosaicBlock(
+                if (heroLeft) PhotoMosaicKind.HERO_LEFT else PhotoMosaicKind.HERO_RIGHT,
+                files.subList(index, index + 4)
+            )
+            index += 4
+            heroLeft = !heroLeft
+        } else {
+            val count = minOf(3, remaining)
+            blocks += PhotoMosaicBlock(PhotoMosaicKind.ROW, files.subList(index, index + count))
+            index += count
+        }
+        phase++
+    }
+    return blocks
+}
+
+private fun togglePhotoSelection(selectedIds: Set<String>, id: String): Set<String> =
+    if (id in selectedIds) selectedIds - id else selectedIds + id
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PhotoMosaicTile(
+    file: DriveFile,
+    allFiles: List<DriveFile>,
+    selectionMode: Boolean,
+    selected: Boolean,
+    featured: Boolean,
+    modifier: Modifier,
+    onOpen: (DriveFile, List<DriveFile>) -> Unit,
+    onToggleSelection: () -> Unit,
+    onLongSelect: () -> Unit
+) {
+    val shape = RoundedCornerShape(if (featured) 4.dp else 2.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) onToggleSelection() else onOpen(file, allFiles)
+                },
+                onLongClick = onLongSelect
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        val thumbnailUrl = remember(file.thumbnailUrl, featured) {
+            photoThumbnailUrl(file.thumbnailUrl, featured)
+        }
+        val bitmap by produceState<android.graphics.Bitmap?>(null, thumbnailUrl) {
+            value = withContext(Dispatchers.IO) {
+                thumbnailUrl?.let { runCatching { ThumbnailRepository.load(it) }.getOrNull() }
+            }
+        }
+
+        bitmap?.let {
+            Image(
+                it.asImageBitmap(),
+                file.name,
+                Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } ?: Icon(
+            Icons.Outlined.Image,
+            null,
+            Modifier.size(if (featured) 42.dp else 28.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (file.mimeType.startsWith("video/")) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(if (featured) 12.dp else 7.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White
+            ) {
+                Icon(
+                    Icons.Outlined.PlayArrow,
+                    tr("Videos"),
+                    Modifier.padding(4.dp).size(if (featured) 24.dp else 18.dp)
+                )
+            }
+        }
+
+        if (selectionMode) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(if (featured) 12.dp else 7.dp)
+                    .size(if (featured) 32.dp else 28.dp),
+                shape = CircleShape,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                    else Color.Black.copy(alpha = 0.22f),
+                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
+                border = BorderStroke(2.dp, Color.White.copy(alpha = 0.9f))
+            ) {
+                if (selected) {
+                    Icon(Icons.Outlined.Check, tr("Selected"), Modifier.padding(4.dp))
+                }
+            }
+        }
+    }
+}
 
 private fun photoThumbnailUrl(url: String?, featured: Boolean): String? {
     if (url == null) return null
-    val suffix = if (featured) "=w1200-h800-c" else "=w520-h520-c"
+    val suffix = if (featured) "=w1200-h1800-c" else "=w520-h520-c"
     return if (url.matches(Regex(".*=w\\d+-h\\d+.*"))) {
         url.replace(Regex("=w\\d+-h\\d+.*$"), suffix)
     } else {

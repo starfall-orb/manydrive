@@ -455,7 +455,11 @@ internal fun App(
                 bottomBar = {
                     // This browser bar is retained only under the mini/full transition.
                     if (!appViewerExpanded) Column(
-                        modifier = if (showSettings) Modifier.navigationBarsPadding() else Modifier
+                        modifier = if (showSettings || showSystemFiles || selected in setOf(3, 4)) {
+                            Modifier.navigationBarsPadding()
+                        } else {
+                            Modifier
+                        }
                     ) {
                         if (mediaViewer != null && playback != null) {
                             // Reserve and measure the compact slot; the video itself remains in the overlay.

@@ -8,7 +8,9 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
+import com.starfall.gsadrive.data.FileListCache
 import com.starfall.gsadrive.data.PhotosApi
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -20,10 +22,12 @@ internal class PhotosLibraryController(
     private val update: (String, Model) -> Unit
 ) {
     private val authorization = Identity.getAuthorizationClient(activity)
+    private val cache = FileListCache(File(activity.cacheDir, "google-photos-list"))
     private var revision = 0
     private var pending: Pair<String, Int>? = null
     private var tokenAccount: String? = null
     private var token: String? = null
+    private var snapshot = Model()
     val accessToken: String? get() = token.takeIf { tokenAccount == account()?.key }
 
     private val resolution = activity.registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -55,17 +59,43 @@ internal class PhotosLibraryController(
     }
 
     private fun current(request: Pair<String, Int>) = request.first == account()?.key && request.second == revision
-    private fun fail(request: Pair<String, Int>, message: String) {
-        if (current(request)) update(request.first, Model(message = message))
+    private fun publish(accountKey: String, next: Model) {
+        snapshot = next
+        update(accountKey, next)
     }
 
-    fun reset() { revision++; token = null; tokenAccount = null; pending = null }
+    private fun fail(request: Pair<String, Int>, message: String) {
+        if (current(request)) {
+            publish(request.first, snapshot.copy(loading = false, message = message))
+        }
+    }
+
+    fun reset() {
+        revision++
+        token = null
+        tokenAccount = null
+        pending = null
+        snapshot = Model()
+    }
 
     fun refresh() {
         val entry = account()?.takeIf { it.type == AccountType.GOOGLE } ?: return
         if (pending != null) return
         val request = entry.key to ++revision
-        update(entry.key, Model(loading = true))
+        publish(entry.key, snapshot.copy(loading = true, message = null))
+
+        activity.lifecycleScope.launch {
+            val cached = withContext(Dispatchers.IO) { cache.read(entry.key, CACHE_LOCATION) }
+            if (!current(request)) return@launch
+            if (snapshot.files.isEmpty() && !cached.isNullOrEmpty()) {
+                publish(entry.key, snapshot.copy(files = cached, loading = true, message = null))
+            }
+            authorize(request, entry)
+        }
+    }
+
+    private fun authorize(request: Pair<String, Int>, entry: AccountEntry) {
+        if (!current(request)) return
         authorization.authorize(AuthorizationRequest.builder()
             .setAccount(Account(entry.id, "com.google"))
             .setRequestedScopes(listOf(Scope(PhotosApi.READ_SCOPE))).build())
@@ -93,8 +123,14 @@ internal class PhotosLibraryController(
         activity.lifecycleScope.launch {
             val result = runCatching { withContext(Dispatchers.IO) { PhotosApi.list(value) } }
             if (!current(request)) return@launch
-            result.onSuccess { update(request.first, Model(files = it)) }
-                .onFailure { fail(request, it.message ?: tr("Could not load Google Photos.")) }
+            result.onSuccess { files ->
+                publish(request.first, snapshot.copy(files = files, loading = false, message = null))
+                withContext(Dispatchers.IO) { cache.write(request.first, CACHE_LOCATION, files) }
+            }.onFailure { fail(request, it.message ?: tr("Could not load Google Photos.")) }
         }
+    }
+
+    private companion object {
+        const val CACHE_LOCATION = "google-photos"
     }
 }
