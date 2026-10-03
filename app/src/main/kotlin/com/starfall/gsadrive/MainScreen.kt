@@ -230,7 +230,7 @@ internal fun App(
     SideEffect {
         val activity = view.context as? android.app.Activity ?: return@SideEffect
         activity.window.statusBarColor = if (viewerBlack) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
-        activity.window.navigationBarColor = if (viewerBlack) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
+        activity.window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             activity.window.isNavigationBarContrastEnforced = false
         }

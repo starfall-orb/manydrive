@@ -75,6 +75,17 @@ internal fun ExpandableMediaPlayer(
     }
     val view = LocalView.current
 
+    SideEffect {
+        if (!minimized) {
+            val activity = view.context as? Activity ?: return@SideEffect
+            activity.window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                activity.window.isNavigationBarContrastEnforced = false
+            }
+            WindowCompat.getInsetsController(activity.window, view).isAppearanceLightNavigationBars = false
+        }
+    }
+
     BackHandler(enabled = !minimized) {
         if (fullscreen) fullscreen = false else onMinimize()
     }
@@ -156,8 +167,9 @@ internal fun ExpandableMediaPlayer(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val miniHeight = miniBounds?.height ?: with(density) { 72.dp.toPx() }
         val miniTop = miniBounds?.top ?: (constraints.maxHeight - systemBottomInset - miniHeight)
-        val fullHeight = if (fullscreen) constraints.maxHeight.toFloat()
-            else (constraints.maxHeight - systemBottomInset).coerceAtLeast(1).toFloat()
+        // Draw the player behind the transparent navigation bar. Controls apply their own
+        // navigation-bar inset, so the content remains edge-to-edge without losing safe area.
+        val fullHeight = constraints.maxHeight.toFloat()
         val safeInitialIndex = index.coerceIn(0, queue.lastIndex.coerceAtLeast(0))
         val pager = rememberPagerState(initialPage = safeInitialIndex, pageCount = { queue.size })
 
