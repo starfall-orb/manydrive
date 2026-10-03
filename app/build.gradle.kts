@@ -24,8 +24,8 @@ android {
         applicationId = "com.starfall.gsadrive"
         minSdk = 24
         targetSdk = 35
-        versionCode = 24
-        versionName = "3.0.8"
+        versionCode = 25
+        versionName = "3.0.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

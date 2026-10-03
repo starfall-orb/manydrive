@@ -14,6 +14,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -115,11 +116,20 @@ object PlaybackSourceRegistry {
         val source = sources[mediaId] ?: throw IOException(tr("Media source not found: $mediaId"))
         if (source.accountType == "LOCAL") return source.cacheFile
         if (source.accountType == "S3") throw IOException("S3 media must use presigned streaming")
-        if (source.cacheFile.isFile && source.cacheFile.length() > 0L) return source.cacheFile
+        val isVideo = source.file.mimeType.startsWith("video/")
+        if (isVideo && source.cacheFile.isFile && !isFreshVideoCacheFile(source.cacheFile)) source.cacheFile.delete()
+        if (source.cacheFile.isFile && source.cacheFile.length() > 0L) {
+            if (isVideo) touchVideoCacheFile(source.cacheFile)
+            return source.cacheFile
+        }
 
         val lock = locks.getOrPut(mediaId) { Any() }
         synchronized(lock) {
-            if (source.cacheFile.isFile && source.cacheFile.length() > 0L) return source.cacheFile
+            if (isVideo && source.cacheFile.isFile && !isFreshVideoCacheFile(source.cacheFile)) source.cacheFile.delete()
+            if (source.cacheFile.isFile && source.cacheFile.length() > 0L) {
+                if (isVideo) touchVideoCacheFile(source.cacheFile)
+                return source.cacheFile
+            }
             val target = source.cacheFile
             val temporary = File(target.path + ".tmp")
             target.parentFile?.mkdirs()
@@ -136,6 +146,10 @@ object PlaybackSourceRegistry {
                 if (!temporary.renameTo(target)) {
                     temporary.copyTo(target, overwrite = true)
                     temporary.delete()
+                }
+                if (isVideo) {
+                    touchVideoCacheFile(target)
+                    target.parentFile?.let(::pruneVideoFileCache)
                 }
                 return target
             } catch (t: Throwable) {
@@ -187,13 +201,25 @@ internal fun resolvePlaybackDataSpec(dataSpec: DataSpec): DataSpec {
 
 /** A page starts paused and muted; the session activates this same player when selected. */
 @OptIn(UnstableApi::class)
-internal fun createMediaPagePlayer(context: android.content.Context): ExoPlayer = ExoPlayer.Builder(context)
-    .setMediaSourceFactory(DefaultMediaSourceFactory(ResolvingDataSource.Factory(DefaultDataSource.Factory(context), ::resolvePlaybackDataSpec)))
+internal fun createMediaPagePlayer(context: android.content.Context): ExoPlayer {
+    val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(context), ::resolvePlaybackDataSpec)
+    val dataSource = VideoStreamCache.dataSourceFactory(context, resolving)
+    return ExoPlayer.Builder(context)
+    .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+    .setAudioAttributes(
+        AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build(),
+        true
+    )
+    .setHandleAudioBecomingNoisy(true)
     .setSeekBackIncrementMs(10_000L)
     .setSeekForwardIncrementMs(10_000L)
     .setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
         .setBufferDurationsMs(1000, 5000, 250, 500).build())
     .build().apply { volume = 0f; playWhenReady = false }
+}
 
 /** Only the selected media survives process death; other positions belong to this session. */
 internal class PlaybackProgressStore(private val preferences: android.content.SharedPreferences) {
@@ -261,7 +287,8 @@ object PlaybackSettings {
 }
 
 @OptIn(UnstableApi::class)
-private class ManyDriveArtworkBitmapLoader : BitmapLoader {
+private class ManyDriveArtworkBitmapLoader(context: Context) : BitmapLoader {
+    private val appContext = context.applicationContext
     private val executor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(2))
 
     override fun supportsMimeType(mimeType: String): Boolean = mimeType.startsWith("image/")
@@ -276,7 +303,12 @@ private class ManyDriveArtworkBitmapLoader : BitmapLoader {
         val mediaId = uri.getQueryParameter("id") ?: throw IOException(tr("Artwork missing media id"))
         val source = PlaybackSourceRegistry.get(mediaId) ?: throw IOException(tr("No artwork source found"))
         val thumbnailUrl = source.file.thumbnailUrl ?: throw IOException(tr("Media does not have thumbnails"))
-        ThumbnailRepository.load(notificationArtworkUrl(thumbnailUrl), source.accessToken)
+        ThumbnailRepository.load(
+            appContext,
+            notificationArtworkUrl(thumbnailUrl),
+            source.accessToken,
+            cacheKey = "notification:$mediaId"
+        )
     })
 
     fun release() { executor.shutdownNow() }
@@ -408,10 +440,7 @@ private class FixedTransportNotificationProvider(context: Context) : MediaNotifi
             )
 
         val artwork = player.currentMediaItem?.mediaId
-            ?.let(PlaybackSourceRegistry::get)
-            ?.file?.thumbnailUrl
-            ?.let(::notificationArtworkUrl)
-            ?.let(ThumbnailRepository::cached)
+            ?.let { mediaId -> ThumbnailRepository.cached("notification:$mediaId") }
         if (artwork != null) {
             builder.setLargeIcon(notificationLargeIcon(artwork))
                 .setColor(notificationArtworkColor(artwork))
@@ -442,7 +471,7 @@ class MediaPlaybackService : MediaSessionService() {
         super.onCreate()
         setMediaNotificationProvider(FixedTransportNotificationProvider(this))
         player = PagedPlaybackPlayer(this)
-        artworkBitmapLoader = ManyDriveArtworkBitmapLoader()
+        artworkBitmapLoader = ManyDriveArtworkBitmapLoader(this)
         MediaPagePlayback.attach(player)
 
         player.addListener(object : Player.Listener {
@@ -518,6 +547,7 @@ class MediaPlaybackService : MediaSessionService() {
         }
         mediaSession = null
         if (::artworkBitmapLoader.isInitialized) artworkBitmapLoader.release()
+        VideoStreamCache.release()
         PlaybackSourceRegistry.clear()
         super.onDestroy()
     }

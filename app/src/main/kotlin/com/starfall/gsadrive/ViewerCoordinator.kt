@@ -515,7 +515,12 @@ internal class ViewerCoordinator(
             .digest(seed.toByteArray()).joinToString("") { "%02x".format(it) }
         val extension = file.name.substringAfterLast('.', "").lowercase()
             .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }?.let { ".$it" }.orEmpty()
-        return File(File(context.cacheDir, "viewer"), hash + extension)
+        val directory = if (file.mimeType.startsWith("video/")) {
+            File(context.filesDir, "video-file-cache")
+        } else {
+            File(context.cacheDir, "viewer")
+        }
+        return File(directory, hash + extension)
     }
 
     private fun prunePreviewCache() {
@@ -526,5 +531,7 @@ internal class ViewerCoordinator(
                 total += file.length()
                 if (total > MAX_PREVIEW_CACHE_BYTES) file.delete()
             }
+        pruneVideoFileCache(File(context.filesDir, "video-file-cache"))
     }
+
 }

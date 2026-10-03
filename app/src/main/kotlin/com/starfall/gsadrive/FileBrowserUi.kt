@@ -525,6 +525,7 @@ internal fun FileBrowserPage(
                             file,
                             shared && !globalSearch,
                             accessToken = model.token,
+                            thumbnailCacheNamespace = browserKey,
                             onOpen = openFolder,
                             onPreview = { selected -> openFile(selected, visible.filter(::isSwipePreview)) },
                             selectionMode = selectionMode,
@@ -678,16 +679,24 @@ internal fun FileListRow(
 }
 
 @Composable
-private fun rememberFileThumbnail(file: DriveFile, accessToken: String?): androidx.compose.ui.graphics.ImageBitmap? {
+private fun rememberFileThumbnail(
+    file: DriveFile,
+    accessToken: String?,
+    cacheNamespace: String
+): androidx.compose.ui.graphics.ImageBitmap? {
     val url = file.thumbnailUrl ?: return null
+    val context = LocalContext.current.applicationContext
+    val cacheKey = "$cacheNamespace:${file.id}"
     val state = produceState<androidx.compose.ui.graphics.ImageBitmap?>(
-        initialValue = ThumbnailRepository.cached(url)?.asImageBitmap(),
+        initialValue = ThumbnailRepository.cached(cacheKey)?.asImageBitmap(),
         key1 = url,
-        key2 = accessToken
+        key2 = cacheKey
     ) {
         if (value == null) {
             value = withContext(Dispatchers.IO) {
-                runCatching { ThumbnailRepository.load(url, accessToken).asImageBitmap() }.getOrNull()
+                runCatching {
+                    ThumbnailRepository.load(context, url, accessToken, cacheKey).asImageBitmap()
+                }.getOrNull()
             }
         }
     }
@@ -699,6 +708,7 @@ private fun FileGridCard(
     file: DriveFile,
     shared: Boolean,
     accessToken: String?,
+    thumbnailCacheNamespace: String,
     onOpen: (DriveFile) -> Unit,
     onPreview: (DriveFile) -> Unit,
     selectionMode: Boolean,
@@ -707,7 +717,7 @@ private fun FileGridCard(
     onLongSelect: (DriveFile) -> Unit,
     onMenu: ((DriveFile) -> Unit)?
 ) {
-    val thumbnail = rememberFileThumbnail(file, accessToken)
+    val thumbnail = rememberFileThumbnail(file, accessToken, thumbnailCacheNamespace)
     Surface(
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(16.dp),

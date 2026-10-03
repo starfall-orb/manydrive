@@ -485,7 +485,12 @@ class MainActivity : ComponentActivity() {
                     showHiddenSystemFiles,
                     { showHiddenSystemFiles = it; selection.edit().putBoolean("showHiddenSystemFiles", it).apply() },
                     { lifecycleScope.launch {
-                        withContext(Dispatchers.IO) { listingCache.clearAll() }
+                        withContext(Dispatchers.IO) {
+                            listingCache.clearAll()
+                            ThumbnailRepository.clear(this@MainActivity)
+                            VideoStreamCache.clear(this@MainActivity)
+                            File(cacheDir, "viewer").deleteRecursively()
+                        }
                         Toast.makeText(this@MainActivity, tr("File list cache cleared"), Toast.LENGTH_SHORT).show()
                     } },
                     viewer, { file, queue -> openPreview(file, swipeQueue = queue) }, ::closePreview, ::updatePreviewText, ::savePreviewText, ::swipePreview,

@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -348,9 +349,21 @@ private fun PhotoMosaicTile(
         val thumbnailUrl = remember(file.thumbnailUrl, featured) {
             photoThumbnailUrl(file.thumbnailUrl, featured)
         }
-        val bitmap by produceState<android.graphics.Bitmap?>(null, thumbnailUrl) {
-            value = withContext(Dispatchers.IO) {
-                thumbnailUrl?.let { runCatching { ThumbnailRepository.load(it) }.getOrNull() }
+        val context = LocalContext.current.applicationContext
+        val thumbnailCacheKey = remember(file.id, featured) {
+            "google-photos:${file.id}:${if (featured) "featured" else "tile"}"
+        }
+        val bitmap by produceState(
+            initialValue = ThumbnailRepository.cached(thumbnailCacheKey),
+            key1 = thumbnailUrl,
+            key2 = thumbnailCacheKey
+        ) {
+            if (value == null) {
+                value = withContext(Dispatchers.IO) {
+                    thumbnailUrl?.let {
+                        runCatching { ThumbnailRepository.load(context, it, cacheKey = thumbnailCacheKey) }.getOrNull()
+                    }
+                }
             }
         }
 
