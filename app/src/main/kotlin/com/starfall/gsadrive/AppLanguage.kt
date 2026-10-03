@@ -26,7 +26,7 @@ internal object AppLanguage {
 
     private val templateMatchers by lazy(LazyThreadSafetyMode.PUBLICATION) {
         AppLanguageCatalog.templateSources.map { source ->
-            val token = Regex("\\{(\\d+)}")
+            val token = Regex("""\{(\d+)\}""")
             var last = 0
             var count = 0
             val pattern = buildString {
